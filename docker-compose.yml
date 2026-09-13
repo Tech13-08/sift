@@ -1,0 +1,124 @@
+services:
+  auth-service:
+    build:
+      context: ./services/auth-service
+    container_name: sift-auth
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@db:5432/${DB_NAME:-sift}?sslmode=disable
+      SESSION_SECRET: ${SESSION_SECRET:-dev_session_secret_change_me}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
+      DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI}
+      GOOGLE_PUBSUB_TOPIC: ${GOOGLE_PUBSUB_TOPIC}
+      REDIS_ADDR: redis:6379
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      AUTH_PUBLIC_URL: ${AUTH_PUBLIC_URL:-http://localhost:3000}
+      NODE_ENV: ${NODE_ENV:-development}
+      WATCH_RENEW_BEFORE_MS: ${WATCH_RENEW_BEFORE_MS:-86400000}
+    ports:
+      - "3000:3000"
+
+  ingestion-service:
+    build:
+      context: ./services/ingestion-service
+    container_name: sift-ingestion
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@db:5432/${DB_NAME:-sift}?sslmode=disable
+      REDIS_ADDR: redis:6379
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      AUTH_PUBLIC_URL: ${AUTH_PUBLIC_URL:-http://localhost:3000}
+    ports:
+      # Left = host port (must be unique on this machine). Right = container port (always 8080).
+      - "${INGESTION_HOST_PORT:-8080}:8080"
+
+  summarizer-service:
+    build:
+      context: ./services/summarizer-service
+    container_name: sift-summarizer
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@db:5432/${DB_NAME:-sift}?sslmode=disable
+      SUMMARIZER_HEALTH_PORT: 8090
+      DIGEST_TEST_ENDPOINT: ${DIGEST_TEST_ENDPOINT:-1}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8090:8090"
+
+  hookdeck:
+    image: hookdeck/hookdeck-cli:latest
+    container_name: sift-hookdeck
+    restart: always
+    depends_on:
+      ingestion-service:
+        condition: service_started
+    environment:
+      HOOKDECK_API_KEY: ${HOOKDECK_API_KEY:-}
+      HOOKDECK_SOURCE: ${HOOKDECK_SOURCE:-sift-webhook}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+    volumes:
+      - ${HOME:-/home/falak}/.config/hookdeck:/root/.config/hookdeck
+      - ./infra/hookdeck/start.sh:/start.sh:ro
+    entrypoint: ["/bin/sh", "/start.sh"]
+
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: sift-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      POSTGRES_DB: ${DB_NAME:-sift}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-sift}"]
+      interval: 2s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8-alpine
+    container_name: sift-redis
+    ports:
+      - "6379:6379"
+    restart: always
+
+networks:
+  default:
+    name: sift-network
+
+volumes:
+  postgres_data:

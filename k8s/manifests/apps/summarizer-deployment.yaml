@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: summarizer-service
+  labels:
+    app: summarizer-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: summarizer-service
+  template:
+    metadata:
+      labels:
+        app: summarizer-service
+    spec:
+      initContainers:
+          - name: wait-for-postgres
+            image: alpine:latest
+            command: ['sh', '-c', 'until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done;']
+      containers:
+        - name: summarizer-service
+          image: sift-summarizer:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8090
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: sift-secrets
+                  key: DATABASE_URL
+            - name: SUMMARIZER_HEALTH_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: sift-config
+                  key: SUMMARIZER_HEALTH_PORT
+            - name: DISCORD_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sift-secrets
+                  key: DISCORD_BOT_TOKEN
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: summarizer-service
+spec:
+  selector:
+    app: summarizer-service
+  ports:
+    - port: 8090
+      targetPort: 8090

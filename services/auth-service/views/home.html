@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Sift</title>
+</head>
+<body>
+    <h1>Sift</h1>
+    <p>{{username}} · <a href="/logout">Log out</a></p>
+
+    <h2>Inboxes</h2>
+    {{mailboxes}}
+    <p><a href="/auth/google">Link Gmail</a></p>
+
+    <h2>Time</h2>
+    {{flash}}
+    <form method="post" action="/settings">
+        <p>
+            <label>Timezone
+                <input name="timezone" list="tz" value="{{timezone}}" required>
+            </label>
+            <datalist id="tz">
+                <option value="America/Los_Angeles"></option>
+                <option value="America/Denver"></option>
+                <option value="America/Chicago"></option>
+                <option value="America/New_York"></option>
+                <option value="UTC"></option>
+                <option value="Europe/London"></option>
+            </datalist>
+        </p>
+        <p>
+            <label>Time
+                <input type="time" name="digest_local_time" value="{{digest_time}}" required>
+            </label>
+        </p>
+        <p><button type="submit">Save</button></p>
+    </form>
+</body>
+</html>

@@ -1,0 +1,28 @@
+# Secrets and local overrides — never commit these
+.env
+.env.*
+!.env.example
+**/.env
+**/secrets.local.yaml
+k8s/manifests/config/secrets.local.yaml
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Built binaries
+services/ingestion-service/ingestion
+services/summarizer-service/summarizer-service
+services/summarizer-service/summarizer
+*.exe
+*.test
+*.out
+
+# Logs and OS/editor junk
+*.log
+npm-debug.log*
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~

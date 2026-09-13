@@ -1,0 +1,134 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-sql
+data:
+  init.sql: |
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+    CREATE TABLE IF NOT EXISTS users (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      discord_id TEXT UNIQUE NOT NULL,
+      username TEXT NOT NULL,
+      timezone TEXT NOT NULL DEFAULT 'UTC',
+      digest_local_time TIME NOT NULL DEFAULT '08:00'
+    );
+
+    CREATE TABLE IF NOT EXISTS oauth_credentials (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL,
+      email TEXT NOT NULL,
+      access_token TEXT NOT NULL,
+      refresh_token TEXT,
+      expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+      last_history_id TEXT,
+      watch_expiration BIGINT,
+      UNIQUE(user_id, provider, email)
+    );
+
+    CREATE TABLE IF NOT EXISTS digests (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      window_start TIMESTAMPTZ NOT NULL,
+      window_end TIMESTAMPTZ NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'scheduled',
+      status TEXT NOT NULL DEFAULT 'completed',
+      summary TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS digests_user_scheduled_window
+      ON digests (user_id, window_end)
+      WHERE kind = 'scheduled';
+
+    CREATE TABLE IF NOT EXISTS ingested_messages (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      mailbox TEXT NOT NULL,
+      gmail_message_id TEXT NOT NULL,
+      from_address TEXT,
+      subject TEXT,
+      snippet TEXT,
+      internal_date TIMESTAMPTZ,
+      ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      digest_id UUID REFERENCES digests(id) ON DELETE SET NULL,
+      UNIQUE (mailbox, gmail_message_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS ingested_messages_pending_idx
+      ON ingested_messages (user_id, ingested_at)
+      WHERE digest_id IS NULL;
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: sift-config
+                  key: DB_NAME
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: sift-config
+                  key: DB_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sift-secrets
+                  key: DB_PASSWORD
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+            - name: postgres-init
+              mountPath: /docker-entrypoint-initdb.d/init.sql
+              subPath: init.sql
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+        - name: postgres-init
+          configMap:
+            name: postgres-init-sql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

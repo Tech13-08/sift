@@ -1,0 +1,16 @@
+resources:
+- auth-deployment.yaml
+- ingestion-deployment.yaml
+- summarizer-deployment.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+images:
+- name: sift-auth
+  newName: sift-auth
+  newTag: "1774764286"
+- name: sift-ingestion
+  newName: sift-ingestion
+  newTag: "1774764286"
+- name: sift-summarizer
+  newName: sift-summarizer
+  newTag: "1774764286"
