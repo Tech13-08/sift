@@ -189,6 +189,45 @@ func TestColorForMailUsesRule(t *testing.T) {
 	}
 }
 
+func TestClassifyInboxRoutes(t *testing.T) {
+	cases := []struct {
+		in    string
+		route inboxRoute
+	}{
+		{"", inboxEmpty},
+		{"thanks", inboxAck},
+		{"ok", inboxAck},
+		{"got it.", inboxAck},
+		{"rules", inboxCommand},
+		{"help", inboxCommand},
+		{"mute factor75", inboxCommand},
+		{"always show Osprey", inboxCommand},
+		{"make it purple", inboxCommand},
+		{"hyundai is green", inboxCommand},
+		{"forget the Extern rule", inboxCommand},
+		{"Set job alerts for full time roles within the United States targeted towards early career/new grads", inboxCommand},
+		{"remove 3,4,5 and change rule 2 to blue", inboxEdits},
+		{"remove 3, 4, and 5", inboxEdits},
+		{"change rule 2 to blue", inboxEdits},
+		{"did I get any hyundai emails this day?", inboxInsight},
+		{"did I get any email from extern today?", inboxInsight},
+		{"important emails from the past 24 hours", inboxInsight},
+		{"what happened in my inbox?", inboxInsight},
+		{"anything about the car?", inboxInsight},
+		{"I don't need email from extern, hireft, or any job hunting site where it's not a specific job alert but rather advertising the product", inboxInterpret},
+		{"extern mail is important", inboxInterpret},
+	}
+	for _, tc := range cases {
+		got, _, _ := classifyInbox(tc.in)
+		if got != tc.route {
+			t.Fatalf("%q: got %s want %s", tc.in, got, tc.route)
+		}
+	}
+	if looksLikeJobPreference("I don't need a specific job alert, skip the ads") && !looksLikeSkipPreference("I don't need a specific job alert, skip the ads") {
+		t.Fatal("skip + job alert should not become a job filter")
+	}
+}
+
 func TestLooksLikeInsight(t *testing.T) {
 	if !looksLikeInsight("did i get any hyundai emails this day?") {
 		t.Fatal("hyundai question")

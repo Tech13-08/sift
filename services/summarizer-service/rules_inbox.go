@@ -98,11 +98,11 @@ func pollUserRules(ctx context.Context, db *sql.DB, token, botID string, u diges
 		if err != nil {
 			return err
 		}
-		if err := sendDiscordDM(reqCtx, u.DiscordID, reply); err != nil {
-			return err
-		}
 		if err := saveRuleCursor(reqCtx, db, u.DiscordID, m.ID); err != nil {
 			return err
+		}
+		if err := sendDiscordDM(reqCtx, u.DiscordID, reply); err != nil {
+			log.Printf("rules inbox dm user=%s: %v", u.ID, err)
 		}
 	}
 	return nil
@@ -120,11 +120,15 @@ func skipRepeatList(userID string) bool {
 
 func applyUserCommand(ctx context.Context, db *sql.DB, u digestUser, content string) (string, error) {
 	userID := u.ID
-	if edits := parseRuleEdits(content); len(edits) > 0 {
+	route, cmd, edits := classifyInbox(content)
+	switch route {
+	case inboxEmpty:
+		return ruleHelp(), nil
+	case inboxAck:
+		return "Got it.", nil
+	case inboxEdits:
 		return applyRuleEdits(ctx, db, userID, edits)
-	}
-	cmd := parseMailCommand(content)
-	if cmd.Action == "unknown" && looksLikeInsight(content) {
+	case inboxInsight:
 		return answerInsight(ctx, db, u, content)
 	}
 	switch cmd.Action {
@@ -172,11 +176,25 @@ func applyUserCommand(ctx context.Context, db *sql.DB, u digestUser, content str
 	case "color":
 		return applyColorCommand(ctx, db, userID, cmd)
 	case ruleAlwaysShow:
+		existing, err := loadRules(ctx, db, userID)
+		if err != nil {
+			return "", err
+		}
+		if alreadyHasPattern(existing, ruleAlwaysShow, cmd.Pattern) {
+			return "Already watching mail matching " + cmd.Pattern + ".", nil
+		}
 		if err := insertRule(ctx, db, userID, ruleAlwaysShow, cmd.Pattern, "Always mention mail matching "+cmd.Pattern+"."); err != nil {
 			return "", err
 		}
 		return finishKeepRule(ctx, db, userID, content, "I'll treat mail matching "+cmd.Pattern+" as important.")
 	case ruleMute:
+		existing, err := loadRules(ctx, db, userID)
+		if err != nil {
+			return "", err
+		}
+		if alreadyHasMute(existing, cmd.Pattern) {
+			return "Already muted " + cmd.Pattern + ".", nil
+		}
 		if err := insertRule(ctx, db, userID, ruleMute, cmd.Pattern, "Do not mention mail matching "+cmd.Pattern+"."); err != nil {
 			return "", err
 		}

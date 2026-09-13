@@ -34,6 +34,17 @@ type parsedCommand struct {
 	Reply     string
 }
 
+type inboxRoute string
+
+const (
+	inboxEmpty     inboxRoute = "empty"
+	inboxAck       inboxRoute = "ack"
+	inboxEdits     inboxRoute = "edits"
+	inboxCommand   inboxRoute = "command"
+	inboxInsight   inboxRoute = "insight"
+	inboxInterpret inboxRoute = "interpret"
+)
+
 var (
 	cmdMute      = regexp.MustCompile(`(?i)^(?:please )?(?:mute|don't show(?: me)?|do not show(?: me)?|stop showing(?: me)?)\s+(.+?)$`)
 	cmdUnmute    = regexp.MustCompile(`(?i)^(?:please )?unmute\s+(.+?)$`)
@@ -138,6 +149,39 @@ func parseMailCommand(text string) parsedCommand {
 		return parsedCommand{Action: ruleJobFilter, Pattern: p}
 	}
 	return parsedCommand{Action: "unknown", Reply: ruleHelp()}
+}
+
+func classifyInbox(content string) (inboxRoute, parsedCommand, []ruleEdit) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return inboxEmpty, parsedCommand{Action: "unknown", Reply: ruleHelp()}, nil
+	}
+	if looksLikeAck(content) {
+		return inboxAck, parsedCommand{}, nil
+	}
+	if edits := parseRuleEdits(content); len(edits) > 0 {
+		return inboxEdits, parsedCommand{}, edits
+	}
+	cmd := parseMailCommand(content)
+	if cmd.Action != "unknown" {
+		return inboxCommand, cmd, nil
+	}
+	if looksLikeInsight(content) {
+		return inboxInsight, cmd, nil
+	}
+	return inboxInterpret, cmd, nil
+}
+
+func looksLikeAck(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.Trim(s, ".!?")
+	switch s {
+	case "thanks", "thank you", "thx", "ty", "ok", "okay", "cool", "got it",
+		"nice", "k", "kk", "np", "sure", "yep", "yes", "yeah":
+		return true
+	default:
+		return false
+	}
 }
 
 func parseRuleEdits(text string) []ruleEdit {
@@ -488,9 +532,13 @@ func usableInstruction(s string) bool {
 }
 
 func alreadyHasMute(rules []mailRule, pattern string) bool {
+	return alreadyHasPattern(rules, ruleMute, pattern)
+}
+
+func alreadyHasPattern(rules []mailRule, typ, pattern string) bool {
 	want := strings.ToLower(strings.TrimSpace(pattern))
 	for _, r := range rules {
-		if r.Type == ruleMute && strings.ToLower(strings.TrimSpace(r.Pattern)) == want {
+		if r.Type == typ && strings.ToLower(strings.TrimSpace(r.Pattern)) == want {
 			return true
 		}
 	}

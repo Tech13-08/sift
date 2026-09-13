@@ -99,7 +99,8 @@ func looksLikeRecapInsight(s string) bool {
 	return containsAny(low,
 		"important email", "important mail", "anything important", "any important",
 		"what mattered", "what was important", "what did sift", "that mattered",
-		"worth seeing", "sift keep", "sift kept")
+		"what happened", "what's important", "whats important", "what's in my inbox",
+		"whats in my inbox", "worth seeing", "sift keep", "sift kept")
 }
 
 func parseMailQuery(text string, now time.Time, loc *time.Location) mailQuery {
@@ -383,14 +384,25 @@ func formatInsight(answer string, hits []insightHit) string {
 	return answer + "\n\nSources:\n" + formatInsightSources(hits)
 }
 
+const insightSourceCap = 12
+
 func formatInsightSources(hits []insightHit) string {
+	shown := hits
+	extra := 0
+	if len(hits) > insightSourceCap {
+		shown = hits[:insightSourceCap]
+		extra = len(hits) - insightSourceCap
+	}
 	var b strings.Builder
-	for i, h := range hits {
+	for i, h := range shown {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
 		b.WriteString("• ")
 		b.WriteString(insightSourceLine(h))
+	}
+	if extra > 0 {
+		fmt.Fprintf(&b, "\n• and %d more", extra)
 	}
 	return b.String()
 }
