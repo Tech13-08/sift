@@ -43,7 +43,7 @@ func startRulesInbox(ctx context.Context, db *sql.DB) {
 		}
 	}
 	tick()
-	t := time.NewTicker(5 * time.Second)
+	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
 	for {
 		select {
@@ -93,19 +93,39 @@ func pollUserRules(ctx context.Context, db *sql.DB, token, botID string, u diges
 			continue
 		}
 		cmdCtx, cmdCancel := context.WithTimeout(ctx, 3*time.Minute)
+		route, _, _ := classifyInbox(m.Content)
+		stopTyping := holdDiscordTyping(cmdCtx, token, channelID)
+		loadingID, loadErr := discordPostMessage(cmdCtx, token, channelID, inboxPlaceholder(route), nil)
+		if loadErr != nil {
+			log.Printf("rules inbox loading dm user=%s: %v", u.ID, loadErr)
+		}
 		reply, err := applyUserCommand(cmdCtx, db, u, m.Content)
-		cmdCancel()
+		stopTyping()
 		if err != nil {
+			cmdCancel()
 			return err
 		}
-		if err := saveRuleCursor(reqCtx, db, u.DiscordID, m.ID); err != nil {
+		if err := saveRuleCursor(cmdCtx, db, u.DiscordID, m.ID); err != nil {
+			cmdCancel()
 			return err
 		}
-		if err := sendDiscordDM(reqCtx, u.DiscordID, reply); err != nil {
+		if loadErr == nil && loadingID != "" {
+			if err := discordReplaceMessage(cmdCtx, token, channelID, loadingID, reply); err != nil {
+				log.Printf("rules inbox replace dm user=%s: %v", u.ID, err)
+			}
+		} else if err := postDiscordChunks(cmdCtx, token, channelID, reply, nil); err != nil {
 			log.Printf("rules inbox dm user=%s: %v", u.ID, err)
 		}
+		cmdCancel()
 	}
 	return nil
+}
+
+func inboxPlaceholder(route inboxRoute) string {
+	if route == inboxInsight {
+		return "Looking through your mail…"
+	}
+	return "On it…"
 }
 
 func skipRepeatList(userID string) bool {

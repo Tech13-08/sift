@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -70,7 +72,7 @@ func postDiscordChunks(ctx context.Context, token, channelID, content string, em
 	}
 	if len(embeds) == 0 {
 		for _, chunk := range splitDiscordContent(content, discordMsgLimit) {
-			if err := discordPostMessage(ctx, token, channelID, chunk, nil); err != nil {
+			if _, err := discordPostMessage(ctx, token, channelID, chunk, nil); err != nil {
 				return err
 			}
 		}
@@ -86,11 +88,36 @@ func postDiscordChunks(ctx context.Context, token, channelID, content string, em
 		case total > 1:
 			text = fmt.Sprintf("Continued · page %d/%d", i+1, total)
 		}
-		if err := discordPostMessage(ctx, token, channelID, text, page); err != nil {
+		if _, err := discordPostMessage(ctx, token, channelID, text, page); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// discordReplaceMessage edits loadingID to the first content chunk, then posts any overflow.
+func discordReplaceMessage(ctx context.Context, token, channelID, loadingID, content string) error {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		if loadingID != "" {
+			_, _ = discordEditMessage(ctx, token, channelID, loadingID, "Done.")
+		}
+		return nil
+	}
+	chunks := splitDiscordContent(content, discordMsgLimit)
+	if loadingID != "" {
+		if _, err := discordEditMessage(ctx, token, channelID, loadingID, chunks[0]); err != nil {
+			log.Printf("discord edit loading: %v", err)
+			return postDiscordChunks(ctx, token, channelID, content, nil)
+		}
+		for _, chunk := range chunks[1:] {
+			if _, err := discordPostMessage(ctx, token, channelID, chunk, nil); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return postDiscordChunks(ctx, token, channelID, content, nil)
 }
 
 func pageDiscordEmbeds(embeds []discordEmbed, perPage int) [][]discordEmbed {
@@ -141,7 +168,7 @@ func discordCreateDM(ctx context.Context, token, recipientID string) (string, er
 	return resp.ID, nil
 }
 
-func discordPostMessage(ctx context.Context, token, channelID, content string, embeds []discordEmbed) error {
+func discordPostMessage(ctx context.Context, token, channelID, content string, embeds []discordEmbed) (string, error) {
 	payload := map[string]any{}
 	if strings.TrimSpace(content) != "" {
 		payload["content"] = content
@@ -151,36 +178,95 @@ func discordPostMessage(ctx context.Context, token, channelID, content string, e
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return "", err
 	}
 	raw, err := discordDo(ctx, token, http.MethodPost, discordAPI+"/channels/"+channelID+"/messages", body)
 	if err != nil {
-		return err
+		return "", err
 	}
 	var resp struct {
 		ID      string `json:"id"`
 		Message string `json:"message"`
 	}
 	if err := json.Unmarshal(raw, &resp); err != nil {
-		return fmt.Errorf("discord message decode: %w", err)
+		return "", fmt.Errorf("discord message decode: %w", err)
 	}
 	if resp.ID == "" {
 		msg := resp.Message
 		if msg == "" {
 			msg = strings.TrimSpace(string(raw))
 		}
-		return fmt.Errorf("discord message: %s", msg)
+		return "", fmt.Errorf("discord message: %s", msg)
 	}
-	return nil
+	return resp.ID, nil
+}
+
+func discordEditMessage(ctx context.Context, token, channelID, messageID, content string) (string, error) {
+	payload := map[string]any{"content": content}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	raw, err := discordDo(ctx, token, http.MethodPatch, discordAPI+"/channels/"+channelID+"/messages/"+messageID, body)
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		ID      string `json:"id"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return "", fmt.Errorf("discord edit decode: %w", err)
+	}
+	if resp.ID == "" {
+		msg := resp.Message
+		if msg == "" {
+			msg = strings.TrimSpace(string(raw))
+		}
+		return "", fmt.Errorf("discord edit: %s", msg)
+	}
+	return resp.ID, nil
+}
+
+func discordTriggerTyping(ctx context.Context, token, channelID string) {
+	_, _ = discordDo(ctx, token, http.MethodPost, discordAPI+"/channels/"+channelID+"/typing", nil)
+}
+
+// holdDiscordTyping keeps the "bot is typing…" indicator alive until stop() or ctx ends.
+func holdDiscordTyping(ctx context.Context, token, channelID string) (stop func()) {
+	done := make(chan struct{})
+	go func() {
+		discordTriggerTyping(ctx, token, channelID)
+		t := time.NewTicker(8 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-done:
+				return
+			case <-t.C:
+				discordTriggerTyping(ctx, token, channelID)
+			}
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(done) }) }
 }
 
 func discordDo(ctx context.Context, token, method, url string, body []byte) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, reader)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bot "+token)
-	req.Header.Set("Content-Type", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	req.Header.Set("User-Agent", "Sift (https://github.com/sift, 0.1)")
 
 	resp, err := http.DefaultClient.Do(req)
