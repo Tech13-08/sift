@@ -81,7 +81,7 @@ func TestFormatEmailForCategorizePutsBodyFirst(t *testing.T) {
 		from:    "Reddit <noreply@redditmail.com>",
 		subject: `"Google SWE Internship Interview Invite"`,
 		body:    "Someone posted in r/cscareerquestions. This is a link to their thread, not your interview.",
-	})
+	}, false)
 	if !strings.Contains(got, "Read the body before the subject") {
 		t.Fatal("categorize payload should tell the model to use the body")
 	}
@@ -167,6 +167,18 @@ func TestSelectAfterCullRestoresReplyToMe(t *testing.T) {
 	got := selectAfterCull(kept, []int{2})
 	if len(got) != 2 || !got[0].ReplyToMe {
 		t.Fatalf("should restore reply-to-me: %+v", got)
+	}
+}
+
+func TestSelectAfterCullRestoresApplicationAndFinance(t *testing.T) {
+	kept := []messageFacts{
+		{Title: "Your application was sent to Quippy", Summary: "LinkedIn confirmed the application."},
+		{Title: "Daily financial monitor update", Summary: "Empower spending update.", Outcome: "keep via qwen: financial update"},
+		{Title: "Random newsletter", Summary: "Someone else's post."},
+	}
+	got := selectAfterCull(kept, nil)
+	if len(got) != 2 {
+		t.Fatalf("should restore app+finance: %+v", got)
 	}
 }
 

@@ -317,12 +317,16 @@ func applyRules(messages []ingestedMessage, facts []messageFacts, rules []mailRu
 			if strings.TrimSpace(f.Summary) == "" {
 				f.Summary = fallbackLine(msg)
 			}
+			f.Mailbox = msg.mailbox
 			f.Color = colorForMail(rules, msg, f)
+			f.Outcome = decisionOutcome("keep", "always-show", "always-show rule")
+			logDecide("keep", "always-show", msg.from, msg.subject, "always-show rule")
 			kept = append(kept, f)
 			continue
 		}
 		if msg.replyToMe {
 			f = keepReplyToMe(msg, f)
+			f.Mailbox = msg.mailbox
 			f.Color = colorForMail(rules, msg, f)
 			kept = append(kept, f)
 			continue
@@ -331,16 +335,27 @@ func applyRules(messages []ingestedMessage, facts []messageFacts, rules []mailRu
 			noise++
 			continue
 		}
+		if claimedByWatch(rules, msg, f) {
+			f = keepWatchedMail(msg, f)
+			f.Mailbox = msg.mailbox
+			f.Color = colorForMail(rules, msg, f)
+			f.Outcome = decisionOutcome("keep", "watch", "matches a watch/keep rule")
+			kept = append(kept, f)
+			continue
+		}
 		if f.Kind == kindPromo || f.Kind == "" {
 			noise++
+			logDecide("skip", "rules", msg.from, msg.subject, firstNonEmpty(f.Outcome, "marked promo"))
 			continue
 		}
 		if len(jobTokens) > 0 && looksJobish(f.What+" "+f.Title+" "+msg.subject+" "+msg.from) && !matchesJobFilter(f, msg, jobTokens) {
 			noise++
+			logDecide("skip", "job-filter", msg.from, msg.subject, "job-ish but does not match watch criteria")
 			continue
 		}
 		if strings.TrimSpace(f.Title) == "" && strings.TrimSpace(f.Summary) == "" && compileLine(f) == "" {
 			noise++
+			logDecide("skip", "rules", msg.from, msg.subject, "empty title/summary")
 			continue
 		}
 		if strings.TrimSpace(f.Title) == "" {
@@ -349,7 +364,9 @@ func applyRules(messages []ingestedMessage, facts []messageFacts, rules []mailRu
 		if strings.TrimSpace(f.Summary) == "" {
 			f.Summary = compileLine(f)
 		}
+		f.Mailbox = msg.mailbox
 		f.Color = colorForMail(rules, msg, f)
+		logDecide("keep", "rules", msg.from, msg.subject, firstNonEmpty(f.Outcome, "passed filters"))
 		kept = append(kept, f)
 	}
 	return kept, noise
@@ -375,6 +392,15 @@ func alwaysShows(rules []mailRule, msg ingestedMessage) bool {
 	return false
 }
 
+func claimedByWatch(rules []mailRule, msg ingestedMessage, f messageFacts) bool {
+	if alwaysShows(rules, msg) {
+		return true
+	}
+	tokens := jobFilterTokens(rules)
+	hay := strings.ToLower(msg.from + " " + msg.subject + " " + f.Who + " " + f.What + " " + f.Title)
+	return len(tokens) > 0 && looksJobish(hay) && matchesJobFilter(f, msg, tokens)
+}
+
 func ruleHaystack(msg ingestedMessage) string {
 	return strings.ToLower(msg.from + " " + msg.subject)
 }
@@ -389,32 +415,54 @@ func jobFilterTokens(rules []mailRule) []string {
 	if raw == "" {
 		return nil
 	}
+	return jobWatchNeedles(raw)
+}
+
+func jobWatchNeedles(raw string) []string {
+	raw = strings.ToLower(strings.ReplaceAll(raw, "-", " "))
 	stop := map[string]bool{
-		"only": true, "show": true, "me": true, "new": true, "job": true, "jobs": true,
+		"only": true, "show": true, "me": true, "job": true, "jobs": true,
 		"search": true, "ones": true, "if": true, "they": true, "match": true, "the": true,
 		"a": true, "an": true, "or": true, "and": true, "for": true, "with": true,
-		"criteria": true, "such": true, "that": true,
+		"criteria": true, "such": true, "that": true, "within": true, "towards": true,
+		"toward": true, "targeted": true, "roles": true, "role": true, "across": true,
 	}
-	var tokens []string
-	for _, part := range strings.FieldsFunc(strings.ToLower(raw), func(r rune) bool {
-		return r == ',' || unicode.IsSpace(r)
-	}) {
-		part = strings.Trim(part, `."'`)
-		if part == "" || stop[part] {
+	var needles []string
+	for _, clause := range strings.Split(raw, ",") {
+		var words []string
+		for _, part := range strings.FieldsFunc(clause, func(r rune) bool {
+			return unicode.IsSpace(r) || r == '/'
+		}) {
+			part = strings.Trim(part, `."'`)
+			if part == "" || stop[part] {
+				continue
+			}
+			words = append(words, part)
+		}
+		if len(words) == 0 {
 			continue
 		}
-		tokens = append(tokens, part)
+		if len(words) == 1 {
+			needles = append(needles, jobTokenNeedles(words[0])...)
+			continue
+		}
+		for i := 0; i+1 < len(words); i++ {
+			phrase := words[i] + " " + words[i+1]
+			needles = append(needles, phrase)
+			if strings.HasSuffix(phrase, "s") {
+				needles = append(needles, strings.TrimSuffix(phrase, "s"))
+			}
+		}
 	}
-	return tokens
+	return needles
 }
 
 func matchesJobFilter(f messageFacts, msg ingestedMessage, tokens []string) bool {
 	hay := strings.ToLower(f.What + " " + f.Who + " " + msg.subject + " " + msg.from)
+	hay = strings.ReplaceAll(hay, "-", " ")
 	for _, t := range tokens {
-		for _, n := range jobTokenNeedles(t) {
-			if strings.Contains(hay, n) {
-				return true
-			}
+		if t != "" && strings.Contains(hay, t) {
+			return true
 		}
 	}
 	return false
@@ -447,7 +495,10 @@ func rulePromptAppendix(rules []mailRule) string {
 			lines = append(lines, "- Only mention job-search mail if it matches: "+r.Pattern+".")
 		}
 	}
-	return strings.Join(lines, "\n")
+	if len(lines) == 0 {
+		return ""
+	}
+	return "Watch/keep rules win when they fit the email. Skip rules only hide the skipped subclass, not the watched item.\n" + strings.Join(lines, "\n")
 }
 
 func loadRules(ctx context.Context, db *sql.DB, userID string) ([]mailRule, error) {
@@ -598,9 +649,9 @@ func formatRules(rules []mailRule) string {
 
 func ruleShowsColor(r mailRule) bool {
 	switch r.Type {
-	case ruleMute, ruleJobFilter:
+	case ruleMute:
 		return false
-	case ruleAlwaysShow:
+	case ruleAlwaysShow, ruleJobFilter:
 		return true
 	}
 	return !isSkipInstruction(r)

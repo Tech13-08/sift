@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"regexp"
 	"strings"
@@ -28,11 +29,13 @@ func buildDigest(ctx context.Context, db *sql.DB, u digestUser, messages []inges
 	facts := extractAllFacts(ctx, messages, rules)
 	persistFacts(ctx, db, messages, facts)
 	for i, f := range facts {
-		log.Printf("fact id=%s kind=%s title=%q", messages[i].id, f.Kind, f.Title)
+		log.Printf("fact id=%s kind=%s title=%q outcome=%q", messages[i].id, f.Kind, f.Title, f.Outcome)
 	}
-	kept, _ := applyRules(messages, facts, rules)
+	kept, noise := applyRules(messages, facts, rules)
+	log.Printf("rules kept=%d noise=%d", len(kept), noise)
 	kept = cullUnimportant(ctx, kept)
 	kept = collapseRelatedFacts(kept)
+	kept = organizeByMailbox(kept)
 
 	header := siftedHeader(now, loc)
 	greeting := ""
@@ -51,12 +54,63 @@ func buildDigest(ctx context.Context, db *sql.DB, u digestUser, messages []inges
 	}
 	if len(embeds) == 0 {
 		content += "\n\nNothing important today."
+	} else if len(embeds) > discordEmbedsPerMessage {
+		content += fmt.Sprintf("\n\n%d items · page 1/%d", len(embeds), (len(embeds)+discordEmbedsPerMessage-1)/discordEmbedsPerMessage)
 	}
 	return digestPayload{
 		Content: content,
 		Embeds:  embeds,
 		Summary: digestTextSummary(content, embeds),
 	}, nil
+}
+
+// organizeByMailbox clusters kept items by registered inbox when a day spans more than one.
+// Single-inbox days stay unchanged (no mailbox stamp on titles).
+func organizeByMailbox(kept []messageFacts) []messageFacts {
+	if len(kept) <= 1 {
+		return kept
+	}
+	mailboxes := digestMailboxes(kept)
+	if len(mailboxes) <= 1 {
+		return kept
+	}
+	var out []messageFacts
+	for _, mb := range mailboxes {
+		for _, f := range kept {
+			if f.Mailbox == mb {
+				out = append(out, stampMailboxTitle(f, mb))
+			}
+		}
+	}
+	return out
+}
+
+func digestMailboxes(kept []messageFacts) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, f := range kept {
+		mb := strings.TrimSpace(f.Mailbox)
+		if seen[mb] {
+			continue
+		}
+		seen[mb] = true
+		out = append(out, mb)
+	}
+	return out
+}
+
+func stampMailboxTitle(f messageFacts, mailbox string) messageFacts {
+	label := strings.TrimSpace(mailbox)
+	if label == "" {
+		return f
+	}
+	f.Mailbox = mailbox
+	title := strings.TrimSpace(f.Title)
+	if title == "" || strings.Contains(strings.ToLower(title), strings.ToLower(label)) {
+		return f
+	}
+	f.Title = title + " · " + label
+	return f
 }
 
 func collapseRelatedFacts(kept []messageFacts) []messageFacts {

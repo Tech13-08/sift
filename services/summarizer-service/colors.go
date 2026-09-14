@@ -94,6 +94,13 @@ func colorForMail(rules []mailRule, msg ingestedMessage, f messageFacts) int {
 	hay := strings.ToLower(msg.from + " " + msg.subject + " " + f.Who + " " + f.Title + " " + f.What)
 	var fallback int
 	for _, r := range rules {
+		if r.Type == ruleJobFilter {
+			tokens := jobFilterTokens([]mailRule{r})
+			if looksJobish(hay) && matchesJobFilter(f, msg, tokens) && fallback == 0 {
+				fallback = embedColor(r.Color)
+			}
+			continue
+		}
 		if !ruleShowsColor(r) {
 			continue
 		}

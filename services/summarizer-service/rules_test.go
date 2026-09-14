@@ -154,6 +154,9 @@ func TestDefaultColorHintAndHelp(t *testing.T) {
 	if !ruleShowsColor(mailRule{Type: ruleInstruction, Instruction: "Treat Extern event updates as important"}) {
 		t.Fatal("keep instruction should show a color")
 	}
+	if !ruleShowsColor(mailRule{Type: ruleJobFilter, Pattern: "ML, backend", Color: namedColors["blue"]}) {
+		t.Fatal("job watch rules show a color because matching jobs appear in the digest")
+	}
 }
 
 func TestSanitizeUserRuleParse(t *testing.T) {
@@ -403,6 +406,54 @@ func TestApplyRulesMuteAndJobFilter(t *testing.T) {
 	}
 	if !containsAny(text, "Osprey") {
 		t.Fatalf("meeting dropped: %q", text)
+	}
+}
+
+func TestWatchRuleBeatsSkipWhenBothFit(t *testing.T) {
+	rules := []mailRule{
+		{Type: ruleJobFilter, Pattern: "full time roles within the United States targeted towards early career/new grads"},
+		{Type: ruleInstruction, Instruction: "Skip job-hunting site emails that advertise the product. Keep specific job alerts."},
+	}
+	msg := ingestedMessage{
+		from:    "Alerts <jobs@example.com>",
+		subject: "New grad software engineer — United States",
+		body:    "Full-time early career role. Apply to this specific opening.",
+	}
+	if !claimedByWatch(rules, msg, messageFacts{}) {
+		t.Fatal("watch filter should claim a matching posting")
+	}
+	kept, noise := applyRules(
+		[]ingestedMessage{msg},
+		[]messageFacts{{Kind: kindPromo, Title: "", Summary: ""}},
+		rules,
+	)
+	if noise != 0 || len(kept) != 1 || !kept[0].Claimed {
+		t.Fatalf("skip should not veto a watched item Qwen marked promo: kept=%+v noise=%d", kept, noise)
+	}
+	ad := ingestedMessage{
+		from:    "Alerts <jobs@example.com>",
+		subject: "Unlock premium job search tools",
+		body:    "Upgrade your subscription to see more postings.",
+	}
+	if claimedByWatch(rules, ad, messageFacts{}) {
+		t.Fatal("a product pitch should not be claimed just because a skip rule exists")
+	}
+	weak := ingestedMessage{from: "Deals <hi@list.com>", subject: "See you next time — software tips"}
+	if claimedByWatch(rules, weak, messageFacts{}) {
+		t.Fatal("a weak word like time should not claim promo")
+	}
+	if claimedByWatch([]mailRule{{
+		Type: ruleInstruction, Instruction: "treat emails about finance update as important",
+	}}, ingestedMessage{from: "Shop <a@b.com>", subject: "February update"}, messageFacts{}) {
+		t.Fatal("a keep instruction should not auto-claim every update")
+	}
+}
+
+func TestJobFilterColorAppliesToMatchingMail(t *testing.T) {
+	rules := []mailRule{{Type: ruleJobFilter, Pattern: "early career, United States", Color: namedColors["blue"]}}
+	msg := ingestedMessage{from: "Jobs <j@x.com>", subject: "Early career software engineer — United States"}
+	if colorForMail(rules, msg, messageFacts{}) != namedColors["blue"] {
+		t.Fatalf("job filter color=%d", colorForMail(rules, msg, messageFacts{}))
 	}
 }
 

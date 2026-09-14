@@ -42,6 +42,7 @@ type oneEmailCategory struct {
 	Keep    bool   `json:"keep"`
 	Title   string `json:"title"`
 	Summary string `json:"summary"`
+	Why     string `json:"why"`
 }
 
 type userRuleParse struct {
@@ -61,9 +62,10 @@ var oneEmailJSONSchema = json.RawMessage(`{
   "properties": {
     "keep": {"type": "boolean"},
     "title": {"type": "string"},
-    "summary": {"type": "string"}
+    "summary": {"type": "string"},
+    "why": {"type": "string"}
   },
-  "required": ["keep"]
+  "required": ["keep", "why"]
 }`)
 
 var greetingJSONSchema = json.RawMessage(`{
@@ -107,6 +109,8 @@ keep=true if it is about the owner AND they would want it in a short daily note:
 
 When it is a toss-up between a share and a personal letter, keep=false.
 
+User rules can conflict. A watch/keep rule that fits this email wins over a skip rule about a broader class. Only keep=false for the skip when the body is clearly that subclass (a blast or product pitch), not the thing they asked to watch.
+
 keep=false for newsletters, sales, job/hackathon recommendations they did not apply to, and daily monitors with no action required.
 
 If keep=false, leave title and summary empty.
@@ -114,13 +118,16 @@ If keep=false, leave title and summary empty.
 If keep=true:
 title and summary speak to the reader as you/your. Never I, me, my, mine, I'm.
 title: short accurate line — the real company/person and what happened. Not the mailer/processor. Not a copied post title.
-summary: 1–3 sentences from the BODY only. Do not invent.`
+summary: 1–3 sentences from the BODY only. Do not invent.
+
+Always set why: one short clause naming the real reason (e.g. "payment confirmation", "product ad not a specific opening", "newsletter blast", "matches watched early-career role").`
 
 const greetingPrompt = `JSON only: {"greeting":"..."}. One short greeting to the reader (Good morning / Good afternoon / Good evening / Happy Friday). Not Hey/Hi/Hello. Not I/me/my. Not a caption.`
 
 const cullImportantPrompt = `These were flagged. JSON only: {"keep":[1,3]}
 
-keep = 1-based indexes that are about the mailbox owner (their meeting, money, account, or application outcome). Drop anything that is someone else's post/thread or a generic broadcast. Personal items can stay even if they are not urgent. Do not drop a real rejection, payment, or meeting just to make a shorter list.`
+keep = 1-based indexes that are about the mailbox owner (their meeting, money, account, application outcome, or watched job match). Drop only clear someone-else posts/threads or generic marketing broadcasts.
+Never drop: a reply in their thread, a payment/finance update, an application confirmation/rejection/offer, a login/security alert, or anything marked as matching a watch rule.`
 
 const interpretRulePrompt = `The user is teaching Sift what mail matters. Convert their message into standing instructions for a later importance picker.
 
@@ -131,11 +138,11 @@ instructions are appended to the keep/skip prompt. They must say WHAT mail — c
 mutes hide matching senders in code. Use a brand/person name only (Extern, HireFT). Never mute a category (job hunting, job site, newsletters, advertising).
 removes/unmutes delete existing rules whose text matches. If they are not changing rules, use empty arrays and reply briefly. If they want rules listed, instructions=[] and reply="list". If they ask how to use the bot (help, what commands), reply="help". Setting job alerts or saying which jobs to watch is a rule, not help: put the criteria in instructions (e.g. treat full-time US early-career/new-grad job mail as important). If they are asking whether mail arrived (did I get any Hyundai emails today), instructions=[] and reply="insight". "I don't need / don't want / skip mail from X" is a rule, not a search: named brands go in mutes; any nuance (ads vs real alerts) goes in instructions. Never reply="insight" or "help" for a preference they want saved. If they want a rule gone, put a short needle in removes and do not add a new instruction.`
 
-func categorizeOneEmail(ctx context.Context, msg ingestedMessage, sys string) (messageFacts, error) {
+func categorizeOneEmail(ctx context.Context, msg ingestedMessage, sys string, claimed bool) (messageFacts, error) {
 	if sys == "" {
 		sys = categorizeOnePrompt
 	}
-	user := formatEmailForCategorize(msg)
+	user := formatEmailForCategorize(msg, claimed)
 	raw, err := ollamaJSON(ctx, sys, user, oneEmailJSONSchema, 280, 0.1)
 	if err != nil {
 		return messageFacts{}, err
@@ -144,6 +151,7 @@ func categorizeOneEmail(ctx context.Context, msg ingestedMessage, sys string) (m
 	if err := json.Unmarshal([]byte(extractJSON(raw)), &cat); err != nil {
 		return messageFacts{}, fmt.Errorf("categorize json: %w", err)
 	}
+	why := strings.TrimSpace(cat.Why)
 	f := messageFacts{
 		Title:   strings.TrimSpace(cat.Title),
 		Summary: strings.TrimSpace(cat.Summary),
@@ -155,10 +163,12 @@ func categorizeOneEmail(ctx context.Context, msg ingestedMessage, sys string) (m
 		}
 		f.Title = deFirstPerson(f.Title)
 		f.Summary = deFirstPerson(f.Summary)
+		f.Outcome = decisionOutcome("keep", "qwen", why)
 	} else {
 		f.Kind = kindPromo
 		f.Title = ""
 		f.Summary = ""
+		f.Outcome = decisionOutcome("skip", "qwen", why)
 	}
 	return f, nil
 }
@@ -220,7 +230,23 @@ func cullUnimportant(ctx context.Context, kept []messageFacts) []messageFacts {
 		log.Printf("cull json: %v", err)
 		return kept
 	}
+	chosen := map[int]bool{}
+	for _, n := range picked.Keep {
+		if n >= 1 && n <= len(kept) {
+			chosen[n-1] = true
+		}
+	}
 	out := selectAfterCull(kept, picked.Keep)
+	for i, f := range kept {
+		if chosen[i] {
+			continue
+		}
+		if mustKeepFact(f) {
+			logDecide("keep", "cull-restore", f.From, f.Title, "protected item restored after cull")
+			continue
+		}
+		logDecide("skip", "cull", f.From, f.Title, "dropped as broadcast/share")
+	}
 	log.Printf("cull kept %d/%d titles=%q", len(out), len(kept), factTitles(out))
 	return out
 }
@@ -242,12 +268,14 @@ func selectAfterCull(kept []messageFacts, picks []int) []messageFacts {
 }
 
 func mustKeepFact(f messageFacts) bool {
-	if f.ReplyToMe {
+	if f.ReplyToMe || f.Claimed {
 		return true
 	}
-	blob := strings.ToLower(f.Title + " " + f.Summary + " " + f.What)
+	blob := strings.ToLower(f.Title + " " + f.Summary + " " + f.What + " " + f.Outcome)
 	return looksClosedApplication(blob) || looksTimeAsk(blob) || looksMoneyEvent(blob) ||
-		containsAny(blob, "declined", "rejected", "rejection", "not moving you", "offer letter")
+		containsAny(blob, "declined", "rejected", "rejection", "not moving you", "offer letter",
+			"application was sent", "application sent", "applied to", "finance update", "financial",
+			"sign-in", "sign in", "login", "authentication", "account confirmation")
 }
 
 func factTitles(facts []messageFacts) []string {
@@ -334,7 +362,7 @@ func ollamaJSON(ctx context.Context, sys, user string, format any, numPredict in
 	return out, nil
 }
 
-func formatEmailForCategorize(msg ingestedMessage) string {
+func formatEmailForCategorize(msg ingestedMessage, claimed bool) string {
 	body := strings.TrimSpace(msg.body)
 	if body == "" {
 		body = "(no body stored — do not invent what happened from the subject)"
@@ -344,6 +372,8 @@ func formatEmailForCategorize(msg ingestedMessage) string {
 	hint := "Read the body before the subject. Decide whether this happened to the mailbox owner or is a post/thread about someone else."
 	if msg.replyToMe {
 		hint = "This email is a reply in a conversation the mailbox owner already wrote in. keep=true. Summarize what they said."
+	} else if claimed {
+		hint = "This email matches a watch/keep rule. keep=true unless the body is clearly the skipped subclass from a skip rule (a product pitch or blast), not the watched item."
 	}
 	return fmt.Sprintf("%s\n\nFrom: %s\nSubject: %s\n\nBody:\n%s", hint, msg.from, msg.subject, body)
 }

@@ -14,16 +14,18 @@ const (
 )
 
 type messageFacts struct {
-	Kind    string
-	Outcome string
-	Who     string
-	What    string
-	When    string
-	Summary string
-	From    string
-	Title   string
+	Kind      string
+	Outcome   string
+	Who       string
+	What      string
+	When      string
+	Summary   string
+	From      string
+	Title     string
+	Mailbox   string
 	Color     int
 	ReplyToMe bool
+	Claimed   bool
 }
 
 func extractFacts(msg ingestedMessage) (messageFacts, bool) {
@@ -101,17 +103,18 @@ func compileLine(f messageFacts) string {
 func extractAllFacts(ctx context.Context, messages []ingestedMessage, rules []mailRule) []messageFacts {
 	sys := categorizeOnePrompt
 	if appendix := rulePromptAppendix(rules); appendix != "" {
-		sys += "\n\nUser rules (what this person treats as important):\n" + appendix
+		sys += "\n\nUser rules:\n" + appendix
 	}
 	out := make([]messageFacts, len(messages))
 	for i, msg := range messages {
 		if muted(rules, msg) && !msg.replyToMe {
-			log.Printf("categorize %d/%d muted from=%s subject=%q", i+1, len(messages), msg.from, msg.subject)
-			out[i] = messageFacts{Kind: kindPromo, From: msg.from}
+			why := "muted sender"
+			logDecide("skip", "mute", msg.from, msg.subject, why)
+			out[i] = messageFacts{Kind: kindPromo, From: msg.from, Mailbox: msg.mailbox, Outcome: decisionOutcome("skip", "mute", why)}
 			continue
 		}
-		log.Printf("categorize %d/%d from=%s subject=%q reply_to_me=%v", i+1, len(messages), msg.from, msg.subject, msg.replyToMe)
-		f, err := categorizeOneEmail(ctx, msg, sys)
+		claimed := claimedByWatch(rules, msg, messageFacts{})
+		f, err := categorizeOneEmail(ctx, msg, sys, claimed)
 		if err != nil {
 			log.Printf("categorize fallback: %v", err)
 			f, _ = extractFacts(msg)
@@ -123,17 +126,60 @@ func extractAllFacts(ctx context.Context, messages []ingestedMessage, rules []ma
 			}
 			f.Title = deFirstPerson(f.Title)
 			f.Summary = deFirstPerson(f.Summary)
+			if f.Outcome == "" {
+				if f.Kind == kindPromo {
+					f.Outcome = decisionOutcome("skip", "heuristic", "fallback without qwen")
+				} else {
+					f.Outcome = decisionOutcome("keep", "heuristic", "fallback without qwen")
+				}
+			}
 		}
 		if f.Who == "" {
 			f.Who = namedWho(msg, senderWho(msg.from))
 		}
+		action := "skip"
+		if f.Kind == kindNotice {
+			action = "keep"
+		}
+		logDecide(action, "qwen", msg.from, msg.subject, f.Outcome)
 		if msg.replyToMe {
 			f = keepReplyToMe(msg, f)
+			f.Outcome = decisionOutcome("keep", "reply", "thread you already wrote in")
+			logDecide("keep", "reply", msg.from, msg.subject, "thread you already wrote in")
+		}
+		if claimedByWatch(rules, msg, f) {
+			before := f.Kind
+			f = keepWatchedMail(msg, f)
+			f.Outcome = decisionOutcome("keep", "watch", "matches a watch/keep rule")
+			if before != kindNotice {
+				logDecide("keep", "watch", msg.from, msg.subject, "watch rule overrode skip")
+			} else {
+				logDecide("keep", "watch", msg.from, msg.subject, "matches a watch/keep rule")
+			}
 		}
 		out[i] = f
 		out[i].From = msg.from
+		out[i].Mailbox = msg.mailbox
 	}
 	return out
+}
+
+func keepWatchedMail(msg ingestedMessage, f messageFacts) messageFacts {
+	f.Kind = kindNotice
+	f.Claimed = true
+	if strings.TrimSpace(f.Title) == "" {
+		f.Title = collapseSpace(msg.subject)
+	}
+	if strings.TrimSpace(f.Summary) == "" {
+		if line := compileLine(f); line != "" {
+			f.Summary = line
+		} else {
+			f.Summary = fallbackLine(msg)
+		}
+	}
+	f.Title = deFirstPerson(f.Title)
+	f.Summary = deFirstPerson(f.Summary)
+	return f
 }
 
 func keepReplyToMe(msg ingestedMessage, f messageFacts) messageFacts {
@@ -422,7 +468,9 @@ func looksHumanSender(from string) bool {
 }
 
 func looksJobish(s string) bool {
-	return containsAny(strings.ToLower(s), "engineer", "hiring", "internship", "new match", "software", "recruiter", "interview")
+	return containsAny(strings.ToLower(s),
+		"engineer", "hiring", "internship", "new match", "software", "recruiter", "interview",
+		"job alert", "new grad", "early career", "open role", "job opening", "now hiring")
 }
 
 func containsAny(s string, needles ...string) bool {

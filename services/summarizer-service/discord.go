@@ -76,22 +76,39 @@ func postDiscordChunks(ctx context.Context, token, channelID, content string, em
 		}
 		return nil
 	}
-	first := true
-	for i := 0; i < len(embeds); i += discordEmbedsPerMessage {
-		end := i + discordEmbedsPerMessage
-		if end > len(embeds) {
-			end = len(embeds)
-		}
+	pages := pageDiscordEmbeds(embeds, discordEmbedsPerMessage)
+	total := len(pages)
+	for i, page := range pages {
 		text := ""
-		if first {
+		switch {
+		case i == 0:
 			text = content
-			first = false
+		case total > 1:
+			text = fmt.Sprintf("Continued · page %d/%d", i+1, total)
 		}
-		if err := discordPostMessage(ctx, token, channelID, text, embeds[i:end]); err != nil {
+		if err := discordPostMessage(ctx, token, channelID, text, page); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func pageDiscordEmbeds(embeds []discordEmbed, perPage int) [][]discordEmbed {
+	if perPage <= 0 {
+		perPage = discordEmbedsPerMessage
+	}
+	if len(embeds) == 0 {
+		return nil
+	}
+	var pages [][]discordEmbed
+	for i := 0; i < len(embeds); i += perPage {
+		end := i + perPage
+		if end > len(embeds) {
+			end = len(embeds)
+		}
+		pages = append(pages, embeds[i:end])
+	}
+	return pages
 }
 
 func discordCreateDM(ctx context.Context, token, recipientID string) (string, error) {
