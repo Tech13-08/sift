@@ -3,11 +3,16 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    discord_id TEXT UNIQUE NOT NULL,
+    email TEXT UNIQUE,
+    password_hash TEXT,
+    discord_id TEXT UNIQUE,
     username TEXT NOT NULL,
     timezone TEXT NOT NULL DEFAULT 'UTC',
     digest_local_time TIME NOT NULL DEFAULT '08:00'
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique
+    ON users (lower(username));
 
 CREATE TABLE IF NOT EXISTS oauth_credentials (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -22,6 +27,11 @@ CREATE TABLE IF NOT EXISTS oauth_credentials (
     token_invalid_notified_at TIMESTAMPTZ,
     UNIQUE(user_id, provider, email)
 );
+
+-- One Gmail address across all users (Discord-style 1:1 binding).
+CREATE UNIQUE INDEX IF NOT EXISTS oauth_google_email_unique
+    ON oauth_credentials (lower(email))
+    WHERE provider = 'google';
 
 CREATE TABLE IF NOT EXISTS digests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -90,3 +100,16 @@ CREATE TABLE IF NOT EXISTS discord_rule_cursors (
     discord_id TEXT PRIMARY KEY,
     last_message_id TEXT NOT NULL
 );
+
+-- Password reset (hashed token; raw token only sent by email).
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS password_reset_tokens_user_idx
+    ON password_reset_tokens (user_id);

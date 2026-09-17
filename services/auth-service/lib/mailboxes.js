@@ -6,10 +6,10 @@ function mailboxesHtml(statuses) {
     const items = statuses.map((box) => {
         const email = escapeHtml(box.email);
         if (box.status === 'relink') {
-            return `<li>${email} — Google access expired. <a href="/auth/google">Relink</a></li>`;
+            return `<li>${email} - Google access expired. <a href="/auth/google">Relink</a></li>`;
         }
         if (box.status === 'unknown') {
-            return `<li>${email} — could not verify Google access</li>`;
+            return `<li>${email} - could not verify Google access</li>`;
         }
         return `<li>${email}</li>`;
     });

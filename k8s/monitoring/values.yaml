@@ -1,0 +1,99 @@
+# kube-prometheus-stack values for Sift (public Grafana demo).
+# Install: make install-monitoring
+
+grafana:
+  enabled: true
+  # adminPassword: set via GRAFANA_ADMIN_PASSWORD in .env (install-monitoring.sh --set-string)
+  grafana.ini:
+    server:
+      root_url: https://grafana-sift.falaktulsi.com
+      domain: grafana-sift.falaktulsi.com
+    users:
+      allow_sign_up: false
+      viewers_can_edit: false
+    auth.anonymous:
+      enabled: true
+      org_name: Main Org.
+      org_role: Viewer
+      hide_version: true
+    dashboards:
+      default_home_dashboard_path: /tmp/dashboards/sift-cluster-health.json
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: web
+      ingress.kubernetes.io/ssl-redirect: "false"
+    hosts:
+      - grafana-sift.falaktulsi.com
+    path: /
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+  # Only the Sift status dashboard (sidecar ConfigMap). No kube-* noise.
+  defaultDashboardsEnabled: false
+  defaultDashboardsTimezone: browser
+  resources:
+    requests:
+      cpu: 25m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+      ephemeral-storage: 1Gi
+
+prometheus:
+  enabled: true
+  prometheusSpec:
+    # Short retention: demo that k8s/metrics work; long traffic history not needed.
+    retention: 2d
+    retentionSize: 2GB
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+        ephemeral-storage: 2Gi
+  ingress:
+    enabled: false
+
+alertmanager:
+  enabled: true
+  ingress:
+    enabled: false
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+        ephemeral-storage: 512Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+      ephemeral-storage: 256Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+      ephemeral-storage: 256Mi

@@ -70,6 +70,7 @@ async function watchInbox(userId, email, options = {}) {
     });
 
     const { historyId, expiration } = res.data;
+    // First watch only - renews must not rewind historyId (would skip mail).
     const resetHistory = options.resetHistory === true || !lastHistoryId;
 
     if (resetHistory) {

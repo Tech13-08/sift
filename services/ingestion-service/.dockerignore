@@ -4,3 +4,5 @@
 .env.*
 Dockerfile
 *.md
+*_test.go
+**/testdata/

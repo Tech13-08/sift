@@ -1,3 +1,5 @@
+# Local build outputs only (not the summarizer/ package directory)
+cmd/summarizer/summarizer
 summarizer-service
 *.exe
 *.test

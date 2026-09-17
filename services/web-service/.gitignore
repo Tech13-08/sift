@@ -1,0 +1,9 @@
+# Sift web UI - Next.js App Router
+# Dev: AUTH_INTERNAL_URL=http://localhost:3000 npm run dev
+# Prod: docker compose up web-service (http://localhost:3001)
+
+node_modules
+.next
+out
+.env*.local
+npm-debug.log*

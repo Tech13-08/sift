@@ -15,7 +15,8 @@ func DeadGmail(ctx context.Context, db *sql.DB, userID, email string) {
 		return
 	}
 
-	var discordID, mailbox string
+	var discordID sql.NullString
+	var mailbox string
 	err := db.QueryRowContext(ctx, `
 		UPDATE oauth_credentials AS c
 		SET token_invalid_notified_at = NOW()
@@ -34,8 +35,12 @@ func DeadGmail(ctx context.Context, db *sql.DB, userID, email string) {
 		log.Printf("dead gmail notice claim failed for %s: %v", email, err)
 		return
 	}
+	if !discordID.Valid || strings.TrimSpace(discordID.String) == "" {
+		log.Printf("dead gmail noticed mailbox=%s (no discord; skip dm)", mailbox)
+		return
+	}
 
-	if err := discorddm.Send(ctx, discordID, discorddm.DeadGmailMessage(mailbox)); err != nil {
+	if err := discorddm.Send(ctx, discordID.String, discorddm.DeadGmailMessage(mailbox)); err != nil {
 		log.Printf("dead gmail discord dm failed for %s: %v", mailbox, err)
 		if _, resetErr := db.ExecContext(ctx, `
 			UPDATE oauth_credentials

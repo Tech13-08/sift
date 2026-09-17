@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 
+// enc:v1: + base64(nonce|ciphertext|tag). Rows without the prefix stay plaintext.
 const PREFIX = 'enc:v1:';
 const NONCE_SIZE = 12;
 const TAG_SIZE = 16;

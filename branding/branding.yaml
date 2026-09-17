@@ -1,0 +1,78 @@
+# Sift brand tokens
+# After edits: `make sync-branding` then rebuild web/auth as needed.
+# Do not manually touch *.generated.* files.
+
+product:
+  name: Sift
+  tagline: Your inbox, sifted.
+  url_env: WEB_URL 
+  url_fallback: https://sift.falaktulsi.com
+
+# Web / app theme (oklch colors)
+colors:
+  background: "oklch(0.22 0.02 240)"
+  foreground: "oklch(0.93 0.01 240)"
+  card: "oklch(0.26 0.02 240)"
+  card_foreground: "oklch(0.93 0.01 240)"
+  popover: "oklch(0.26 0.02 240)"
+  popover_foreground: "oklch(0.93 0.01 240)"
+  primary: "oklch(0.82 0.12 85)"
+  primary_foreground: "oklch(0.22 0.03 85)"
+  secondary: "oklch(0.32 0.025 240)"
+  secondary_foreground: "oklch(0.9 0.01 240)"
+  muted: "oklch(0.3 0.02 240)"
+  muted_foreground: "oklch(0.72 0.02 240)"
+  accent: "oklch(0.35 0.04 200)"
+  accent_foreground: "oklch(0.92 0.02 200)"
+  destructive: "oklch(0.65 0.18 25)"
+  border: "oklch(0.4 0.02 240 / 45%)"
+  input: "oklch(0.35 0.02 240)"
+  ring: "oklch(0.82 0.12 85)"
+  amber: "oklch(0.82 0.12 85)"
+  teal: "oklch(0.72 0.09 180)"
+  coral: "oklch(0.7 0.16 30)"
+  chart_1: "oklch(0.82 0.12 85)"
+  chart_2: "oklch(0.72 0.09 180)"
+  chart_3: "oklch(0.65 0.18 25)"
+  chart_4: "oklch(0.6 0.05 240)"
+  chart_5: "oklch(0.5 0.03 240)"
+  sidebar: "oklch(0.2 0.02 240)"
+  sidebar_foreground: "oklch(0.93 0.01 240)"
+  sidebar_primary: "oklch(0.82 0.12 85)"
+  sidebar_primary_foreground: "oklch(0.22 0.03 85)"
+  sidebar_accent: "oklch(0.3 0.02 240)"
+  sidebar_accent_foreground: "oklch(0.93 0.01 240)"
+  sidebar_border: "oklch(0.4 0.02 240 / 45%)"
+  sidebar_ring: "oklch(0.82 0.12 85)"
+
+radius: "0.5rem"
+
+# Background / hero washes 
+atmosphere:
+  body_glow_1: "radial-gradient(ellipse 90% 60% at 10% -10%, oklch(0.35 0.04 220 / 35%), transparent)"
+  body_glow_2: "radial-gradient(ellipse 70% 50% at 90% 10%, oklch(0.3 0.05 85 / 18%), transparent)"
+  body_noise: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E\")"
+  hero_base: "linear-gradient(160deg, oklch(0.28 0.03 240) 0%, oklch(0.2 0.02 240) 45%, oklch(0.18 0.03 85 / 0.35) 100%)"
+  hero_accent: "radial-gradient(circle at 70% 40%, oklch(0.82 0.12 85 / 0.25), transparent 55%), linear-gradient(to left, oklch(0.25 0.02 240 / 0.9), transparent)"
+
+# Hex / email-safe tokens (fallback to oklch)
+email:
+  page_bg: "#f4f2ec"
+  card_bg: "#ffffff"
+  card_border: "#e6e1d6"
+  header_bg: "#1c2430"
+  mark: "#f7f3ea"
+  title: "#1c2430"
+  body: "#4a5563"
+  muted: "#7a8494"
+  footer: "#8a93a3"
+  cta_bg: "#c4a35a"
+  cta_text: "#1c2430"
+  link_fallback: "#5b6575"
+
+# Logo geometry
+logo:
+  view_box: "0 0 128 100"
+  file_stroke: "#e8eaef"
+  public_svg: services/web-service/public/sift-logo.svg
+  email_png: services/auth-service/lib/sift-logo-email.png

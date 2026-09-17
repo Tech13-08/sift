@@ -24,11 +24,43 @@ services:
       REDIS_ADDR: redis:6379
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
-      AUTH_PUBLIC_URL: ${AUTH_PUBLIC_URL:-http://localhost:3000}
+      DISCORD_SERVER_INVITE: ${DISCORD_SERVER_INVITE:-https://discord.gg/sDzA28WcjP}
+      DISCORD_BOT_INVITE: ${DISCORD_BOT_INVITE:-}
+      AUTH_PUBLIC_URL: ${AUTH_PUBLIC_URL:-http://localhost:3010}
+      WEB_URL: ${WEB_URL:-http://localhost:3010}
+      SUMMARIZER_URL: http://summarizer-service:8090
       NODE_ENV: ${NODE_ENV:-development}
       WATCH_RENEW_BEFORE_MS: ${WATCH_RENEW_BEFORE_MS:-86400000}
     ports:
       - "3000:3000"
+
+  web-service:
+    build:
+      context: ./services/web-service
+      args:
+        AUTH_INTERNAL_URL: http://auth-service:3000
+    container_name: sift-web
+    restart: always
+    depends_on:
+      auth-service:
+        condition: service_started
+    environment:
+      AUTH_INTERNAL_URL: http://auth-service:3000
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "${WEB_HOST_PORT:-3010}:3000"
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: sift-tunnel
+    restart: always
+    environment:
+      TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate run
+    depends_on:
+      web-service:
+        condition: service_started
 
   ingestion-service:
     build:
@@ -64,15 +96,33 @@ services:
     environment:
       DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@db:5432/${DB_NAME:-sift}?sslmode=disable
       SUMMARIZER_HEALTH_PORT: 8090
-      DIGEST_TEST_ENDPOINT: ${DIGEST_TEST_ENDPOINT:-1}
+      DIGEST_TEST_ENDPOINT: ${DIGEST_TEST_ENDPOINT:-}
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}
       OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
-      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      DISCORD_SERVICE_URL: http://discord-service:8091
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
       - "8090:8090"
+
+  discord-service:
+    build:
+      context: ./services/discord-service
+    container_name: sift-discord
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+      summarizer-service:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@db:5432/${DB_NAME:-sift}?sslmode=disable
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      SUMMARIZER_URL: http://summarizer-service:8090
+      DISCORD_HEALTH_PORT: 8091
+    ports:
+      - "8091:8091"
 
   hookdeck:
     image: hookdeck/hookdeck-cli:latest

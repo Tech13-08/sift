@@ -15,9 +15,17 @@ spec:
         app: summarizer-service
     spec:
       initContainers:
-          - name: wait-for-postgres
-            image: alpine:latest
-            command: ['sh', '-c', 'until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done;']
+        - name: wait-for-postgres
+          image: alpine:3.20
+          command: ["sh", "-c", "until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done;"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+              ephemeral-storage: 128Mi
       containers:
         - name: summarizer-service
           image: sift-summarizer:v1
@@ -35,16 +43,39 @@ spec:
                 configMapKeyRef:
                   name: sift-config
                   key: SUMMARIZER_HEALTH_PORT
-            - name: DISCORD_BOT_TOKEN
+            - name: DISCORD_SERVICE_URL
               valueFrom:
-                secretKeyRef:
-                  name: sift-secrets
-                  key: DISCORD_BOT_TOKEN
+                configMapKeyRef:
+                  name: sift-config
+                  key: DISCORD_SERVICE_URL
+            - name: OLLAMA_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sift-config
+                  key: OLLAMA_URL
+            - name: OLLAMA_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: sift-config
+                  key: OLLAMA_MODEL
+            - name: OLLAMA_EMBED_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: sift-config
+                  key: OLLAMA_EMBED_MODEL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+              ephemeral-storage: 2Gi
           livenessProbe:
             httpGet:
               path: /healthz
               port: 8090
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
             httpGet:

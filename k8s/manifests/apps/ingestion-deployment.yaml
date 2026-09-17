@@ -15,12 +15,28 @@ spec:
         app: ingestion-service
     spec:
       initContainers:
-          - name: wait-for-postgres
-            image: alpine:latest
-            command: ['sh', '-c', 'until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done;']
-          - name: wait-for-redis
-            image: alpine:latest
-            command: ['sh', '-c', 'until nc -z redis 6379; do echo waiting for redis; sleep 2; done;']
+        - name: wait-for-postgres
+          image: alpine:3.20
+          command: ["sh", "-c", "until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done;"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+              ephemeral-storage: 128Mi
+        - name: wait-for-redis
+          image: alpine:3.20
+          command: ["sh", "-c", "until nc -z redis 6379; do echo waiting for redis; sleep 2; done;"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+              ephemeral-storage: 128Mi
       containers:
         - name: ingestion-service
           image: sift-ingestion:v1
@@ -68,11 +84,19 @@ spec:
                 configMapKeyRef:
                   name: sift-config
                   key: AUTH_PUBLIC_URL
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+              ephemeral-storage: 1Gi
           livenessProbe:
             httpGet:
               path: /healthz
               port: 8080
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
             httpGet:

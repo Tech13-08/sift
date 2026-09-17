@@ -12,15 +12,31 @@ passport.use(new DiscordStrategy({
     clientID: process.env.DISCORD_CLIENT_ID,
     clientSecret: process.env.DISCORD_CLIENT_SECRET,
     callbackURL: process.env.DISCORD_REDIRECT_URI,
-    scope: ['identify']
-}, async (accessToken, refreshToken, profile, done) => {
+    scope: ['identify'],
+    passReqToCallback: true
+}, async (req, accessToken, refreshToken, profile, done) => {
     try {
+        if (!req.user) {
+            return done(new Error('Sign in with your Sift username first, then link Discord.'));
+        }
+
+        const taken = await pool.query(
+            `SELECT id FROM users
+             WHERE discord_id = $1 AND id <> $2`,
+            [profile.id, req.user.id]
+        );
+        if (taken.rows[0]) {
+            const err = new Error('That Discord account is already linked to another Sift user.');
+            err.code = 'discord_taken';
+            return done(err);
+        }
+
         const res = await pool.query(
-            `INSERT INTO users (discord_id, username) 
-             VALUES ($1, $2) 
-             ON CONFLICT (discord_id) DO UPDATE SET username = $2 
+            `UPDATE users
+             SET discord_id = $1
+             WHERE id = $2
              RETURNING *`,
-            [profile.id, profile.username]
+            [profile.id, req.user.id]
         );
         return done(null, res.rows[0]);
     } catch (err) {

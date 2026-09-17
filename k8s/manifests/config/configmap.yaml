@@ -16,7 +16,16 @@ data:
   AUTH_HOST: "0.0.0.0"
   INGESTION_PORT: "8080"
   SUMMARIZER_HEALTH_PORT: "8090"
+  DISCORD_HEALTH_PORT: "8091"
   WATCH_RENEW_BEFORE_MS: "86400000"
-  DISCORD_REDIRECT_URI: http://localhost:3000/auth/discord/callback
-  GOOGLE_REDIRECT_URI: http://localhost:3000/auth/google/callback
-  AUTH_PUBLIC_URL: http://localhost:3000
+  WEB_URL: https://sift.falaktulsi.com
+  AUTH_PUBLIC_URL: https://sift.falaktulsi.com
+  DISCORD_REDIRECT_URI: https://sift.falaktulsi.com/auth/discord/callback
+  GOOGLE_REDIRECT_URI: https://sift.falaktulsi.com/auth/google/callback
+  SUMMARIZER_URL: http://summarizer-service:8090
+  DISCORD_SERVICE_URL: http://discord-service:8091
+  AUTH_INTERNAL_URL: http://auth-service:3000
+  OLLAMA_URL: http://host.docker.internal:11434
+  OLLAMA_MODEL: qwen2.5:14b
+  OLLAMA_EMBED_MODEL: nomic-embed-text
+  DISCORD_SERVER_INVITE: https://discord.gg/sDzA28WcjP

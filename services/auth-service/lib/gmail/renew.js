@@ -3,7 +3,7 @@ const { watchInbox } = require('./watch');
 
 const DEFAULT_RENEW_BEFORE_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_RETRY_MS = 60 * 60 * 1000;
-const MAX_TIMEOUT_MS = 2147483647;
+const MAX_TIMEOUT_MS = 2147483647; // setTimeout max ~24.8d
 
 const timers = new Map();
 
@@ -110,4 +110,22 @@ async function startWatchRenewer() {
     }
 }
 
-module.exports = { startWatchRenewer, scheduleWatchRenewal, msUntilRenew, isDue };
+function cancelWatchRenewal(userId, email) {
+    clearMailboxTimer(mailboxKey(userId, email));
+}
+
+function cancelAllWatchRenewalsForUser(userId) {
+    const prefix = `${userId}|`;
+    for (const key of [...timers.keys()]) {
+        if (key.startsWith(prefix)) clearMailboxTimer(key);
+    }
+}
+
+module.exports = {
+    startWatchRenewer,
+    scheduleWatchRenewal,
+    cancelWatchRenewal,
+    cancelAllWatchRenewalsForUser,
+    msUntilRenew,
+    isDue
+};

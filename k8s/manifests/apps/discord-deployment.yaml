@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: discord-service
+  labels:
+    app: discord-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: discord-service
+  template:
+    metadata:
+      labels:
+        app: discord-service
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: alpine:3.20
+          command: ["sh", "-c", "until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done;"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+              ephemeral-storage: 128Mi
+        - name: wait-for-summarizer
+          image: alpine:3.20
+          command: ["sh", "-c", "until nc -z summarizer-service 8090; do echo waiting for summarizer; sleep 2; done;"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+              ephemeral-storage: 128Mi
+      containers:
+        - name: discord-service
+          image: sift-discord:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8091
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: sift-secrets
+                  key: DATABASE_URL
+            - name: DISCORD_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sift-secrets
+                  key: DISCORD_BOT_TOKEN
+            - name: SUMMARIZER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sift-config
+                  key: SUMMARIZER_URL
+            - name: DISCORD_HEALTH_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: sift-config
+                  key: DISCORD_HEALTH_PORT
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8091
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8091
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: discord-service
+spec:
+  selector:
+    app: discord-service
+  ports:
+    - port: 8091
+      targetPort: 8091

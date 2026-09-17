@@ -5,6 +5,68 @@ async function ensureOauthColumns(pool) {
         ALTER TABLE oauth_credentials
         ADD COLUMN IF NOT EXISTS token_invalid_notified_at TIMESTAMPTZ
     `);
+
+    // One Gmail address → one Sift user (matches Discord 1:1). Drop older duplicate rows first.
+    await pool.query(`
+        DELETE FROM oauth_credentials AS a
+        USING oauth_credentials AS b
+        WHERE a.provider = 'google'
+          AND b.provider = 'google'
+          AND lower(a.email) = lower(b.email)
+          AND a.ctid <> b.ctid
+          AND (
+            COALESCE(a.watch_expiration, 0) < COALESCE(b.watch_expiration, 0)
+            OR (
+              COALESCE(a.watch_expiration, 0) = COALESCE(b.watch_expiration, 0)
+              AND a.id::text > b.id::text
+            )
+          )
+    `);
+    await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS oauth_google_email_unique
+        ON oauth_credentials (lower(email))
+        WHERE provider = 'google'
+    `);
+}
+
+async function ensureUserIdentityColumns(pool) {
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT`);
+    await pool.query(`ALTER TABLE users ALTER COLUMN discord_id DROP NOT NULL`);
+    await pool.query(`
+        UPDATE users u
+        SET email = c.email
+        FROM (
+            SELECT DISTINCT ON (user_id) user_id, email
+            FROM oauth_credentials
+            WHERE provider = 'google'
+            ORDER BY user_id, email
+        ) c
+        WHERE u.id = c.user_id AND (u.email IS NULL OR u.email = '')
+    `);
+    await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique
+        ON users (lower(email))
+        WHERE email IS NOT NULL AND email <> ''
+    `);
+    await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique
+        ON users (lower(username))
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            token_hash TEXT NOT NULL UNIQUE,
+            expires_at TIMESTAMPTZ NOT NULL,
+            used_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS password_reset_tokens_user_idx
+        ON password_reset_tokens (user_id)
+    `);
 }
 
 async function migratePlaintextTokens(pool, key) {
@@ -76,6 +138,7 @@ function alreadyEncrypted(value) {
 
 module.exports = {
     ensureOauthColumns,
+    ensureUserIdentityColumns,
     migratePlaintextTokens,
     claimDeadGmailNotice,
     unclaimDeadGmailNotice,

@@ -1,4 +1,4 @@
-# Secrets and local overrides — never commit these
+# Secrets and local overrides - never commit these
 .env
 .env.*
 !.env.example
@@ -10,13 +10,19 @@ k8s/manifests/config/secrets.local.yaml
 node_modules/
 **/node_modules/
 
-# Built binaries
-services/ingestion-service/ingestion
+# Built binaries (binaries only - not Go package directories)
+services/ingestion-service/cmd/ingestion/ingestion
+services/summarizer-service/cmd/summarizer/summarizer
 services/summarizer-service/summarizer-service
-services/summarizer-service/summarizer
 *.exe
 *.test
 *.out
+
+# Python / Next build junk
+**/__pycache__/
+*.py[cod]
+**/.next/
+**/out/
 
 # Logs and OS/editor junk
 *.log

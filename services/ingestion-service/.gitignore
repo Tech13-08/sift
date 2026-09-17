@@ -1,3 +1,4 @@
-ingestion
+# Local build outputs only (not the ingestion/ package directory)
+cmd/ingestion/ingestion
 *.exe
 *.test

@@ -15,12 +15,28 @@ spec:
         app: auth-service
     spec:
       initContainers:
-          - name: wait-for-postgres
-            image: alpine:latest
-            command: ['sh', '-c', 'until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done;']
-          - name: wait-for-redis
-            image: alpine:latest
-            command: ['sh', '-c', 'until nc -z redis 6379; do echo waiting for redis; sleep 2; done;']
+        - name: wait-for-postgres
+          image: alpine:3.20
+          command: ["sh", "-c", "until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done;"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+              ephemeral-storage: 128Mi
+        - name: wait-for-redis
+          image: alpine:3.20
+          command: ["sh", "-c", "until nc -z redis 6379; do echo waiting for redis; sleep 2; done;"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+              ephemeral-storage: 128Mi
       containers:
         - name: auth-service
           image: sift-auth:v1
@@ -60,11 +76,26 @@ spec:
                 secretKeyRef:
                   name: sift-secrets
                   key: DISCORD_BOT_TOKEN
+            - name: WEB_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sift-config
+                  key: WEB_URL
             - name: AUTH_PUBLIC_URL
               valueFrom:
                 configMapKeyRef:
                   name: sift-config
                   key: AUTH_PUBLIC_URL
+            - name: SUMMARIZER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sift-config
+                  key: SUMMARIZER_URL
+            - name: DISCORD_SERVER_INVITE
+              valueFrom:
+                configMapKeyRef:
+                  name: sift-config
+                  key: DISCORD_SERVER_INVITE
             - name: DISCORD_CLIENT_ID
               valueFrom:
                 secretKeyRef:
@@ -110,11 +141,61 @@ spec:
                 configMapKeyRef:
                   name: sift-config
                   key: REDIS_ADDR
+            - name: SMTP_URL
+              valueFrom:
+                secretKeyRef:
+                  name: sift-secrets
+                  key: SMTP_URL
+                  optional: true
+            - name: SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: sift-secrets
+                  key: SMTP_HOST
+                  optional: true
+            - name: SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: sift-secrets
+                  key: SMTP_PORT
+                  optional: true
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: sift-secrets
+                  key: SMTP_USER
+                  optional: true
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: sift-secrets
+                  key: SMTP_PASS
+                  optional: true
+            - name: SMTP_SECURE
+              valueFrom:
+                secretKeyRef:
+                  name: sift-secrets
+                  key: SMTP_SECURE
+                  optional: true
+            - name: SMTP_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: sift-secrets
+                  key: SMTP_FROM
+                  optional: true
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+              ephemeral-storage: 1Gi
           livenessProbe:
             httpGet:
               path: /healthz
               port: 3000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
             httpGet:
@@ -127,9 +208,12 @@ apiVersion: v1
 kind: Service
 metadata:
   name: auth-service
+  labels:
+    app: auth-service
 spec:
   selector:
     app: auth-service
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
       targetPort: 3000

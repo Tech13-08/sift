@@ -6,7 +6,7 @@ cd "$root"
 
 if [[ ! -f .env ]]; then
   cp .env.example .env
-  echo "Created .env from .env.example — fill in Discord and Google credentials."
+  echo "Created .env from .env.example - fill in Discord and Google credentials."
 else
   echo ".env already exists; leaving it unchanged."
 fi
@@ -27,7 +27,7 @@ local_secrets="k8s/manifests/config/secrets.local.yaml"
 example_secrets="k8s/manifests/config/secrets.local.yaml.example"
 if [[ ! -f "$local_secrets" ]]; then
   cp "$example_secrets" "$local_secrets"
-  echo "Created $local_secrets — fill in the same credentials for k8s."
+  echo "Created $local_secrets - fill in the same credentials for k8s."
 else
   echo "$local_secrets already exists; leaving it unchanged."
 fi
@@ -35,5 +35,6 @@ fi
 echo
 echo "Next:"
 echo "  1. Edit .env (and secrets.local.yaml if you use k8s)."
-echo "  2. docker compose up --build"
-echo "  3. Open http://localhost:3000"
+echo "  2. docker compose up --build -d"
+echo "  3. Open http://localhost:3010 - create an account, then link Gmail"
+echo "  4. Ops checklist: docs/OPS.md"
