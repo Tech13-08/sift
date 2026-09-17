@@ -180,3 +180,25 @@ func TestEmbedsFromFacts(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestMailboxOrderByKept(t *testing.T) {
+	order := []string{"ospreyx13@gmail.com", "falaktulsi@gmail.com"}
+	kept := []model.MessageFacts{
+		{Mailbox: "falaktulsi@gmail.com", Title: "a"},
+		{Mailbox: "falaktulsi@gmail.com", Title: "b"},
+		{Mailbox: "falaktulsi@gmail.com", Title: "c"},
+		{Mailbox: "ospreyx13@gmail.com", Title: "d"},
+	}
+	got := MailboxOrderByKept(order, kept)
+	if len(got) != 2 || got[0] != "falaktulsi@gmail.com" || got[1] != "ospreyx13@gmail.com" {
+		t.Fatalf("want falaktulsi first (3 kept), got %v", got)
+	}
+	// Equal counts keep first-seen order.
+	tie := MailboxOrderByKept(order, []model.MessageFacts{
+		{Mailbox: "ospreyx13@gmail.com"},
+		{Mailbox: "falaktulsi@gmail.com"},
+	})
+	if tie[0] != "ospreyx13@gmail.com" {
+		t.Fatalf("tie should keep original order, got %v", tie)
+	}
+}

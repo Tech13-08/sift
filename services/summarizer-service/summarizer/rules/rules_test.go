@@ -32,29 +32,33 @@ func TestRulePromptAppendix(t *testing.T) {
 
 func TestColorForFactUsesMatchedRule(t *testing.T) {
 	mailRules := []model.MailRule{
-		{Type: model.RuleInstruction, Instruction: "treat emails about finance update as important", Color: NamedColors["green"]},
+		{Type: model.RuleInstruction, Instruction: "keep emails about real personal financial transactions", Color: NamedColors["green"]},
 		{Type: model.RuleInstruction, Instruction: "skip job-site product ads"},
 		{Type: model.RuleJobFilter, Pattern: "early career", Color: NamedColors["blue"]},
 	}
-	// Real money evidence confirms finance matched_rule.
-	schwab := model.IngestedMessage{From: "Schwab <alerts@schwab.com>", Subject: "Account activity", Body: "Payment received for $120.00"}
-	got := ColorForFact(mailRules, schwab, model.MessageFacts{
-		MatchedRule: 1, Kind: model.KindNotice, Title: "Payment received", Summary: "Payment received for $120.",
+	// High-confidence match → green.
+	donation := model.IngestedMessage{
+		From: "Tremendous <rewards@reward.tremendous.com>", Subject: "Thank you for your $5.00 USD donation",
+		Body: "You donated $5.00 USD",
+	}
+	got := ColorForFact(mailRules, donation, model.MessageFacts{
+		MatchedRule: 1, RuleConfidence: 90, Kind: model.KindNotice,
+		Title: "Donation confirmation", Summary: "You donated $5.00",
 	})
 	if got != NamedColors["green"] {
-		t.Fatalf("matched finance rule color=%d want green", got)
+		t.Fatalf("confident donation color=%d want green", got)
 	}
-	// Soft "finance update" stamp on unrelated mail must not color or confirm.
+	// Soft stamp with low confidence must not color.
 	cloudflare := model.IngestedMessage{From: "Cloudflare <em@em1.cloudflare.com>", Subject: "Updates to managing AI crawlers on your account"}
-	if ConfirmMatchedRule(mailRules, cloudflare, model.MessageFacts{MatchedRule: 1, Title: "AI crawler controls", Outcome: "keep via qwen: finance update"}) != 0 {
-		t.Fatal("cloudflare must not confirm finance matched_rule")
+	if ConfirmMatchedRule(mailRules, cloudflare, model.MessageFacts{MatchedRule: 1, RuleConfidence: 40, Title: "AI crawler controls"}) != 0 {
+		t.Fatal("low confidence must not confirm")
 	}
-	if ColorForFact(mailRules, cloudflare, model.MessageFacts{MatchedRule: 1, Title: "AI crawler controls"}) != 0 {
-		t.Fatal("cloudflare should not pick up finance color")
+	if ColorForFact(mailRules, cloudflare, model.MessageFacts{MatchedRule: 1, RuleConfidence: 40, Title: "AI crawler controls"}) != 0 {
+		t.Fatal("low-confidence cloudflare must not get finance color")
 	}
 	linkedin := model.IngestedMessage{From: "LinkedIn <jobs-noreply@linkedin.com>", Subject: "New jobs for you"}
-	if ColorForFact(mailRules, linkedin, model.MessageFacts{MatchedRule: 1}) != 0 {
-		t.Fatal("matched_rule without evidence must not color")
+	if ColorForFact(mailRules, linkedin, model.MessageFacts{MatchedRule: 1, RuleConfidence: 50}) != 0 {
+		t.Fatal("matched_rule below confidence floor must not color")
 	}
 	if ColorFromMatchedRule(mailRules, 2) != NamedColors["blue"] {
 		t.Fatal("index 2 should be job filter blue")
@@ -62,37 +66,51 @@ func TestColorForFactUsesMatchedRule(t *testing.T) {
 	if ColorFromMatchedRule(mailRules, 9) != 0 {
 		t.Fatal("out of range matched_rule should be ignored")
 	}
-	// Donation confirms finance.
-	donation := model.IngestedMessage{From: "Tremendous <rewards@reward.tremendous.com>", Subject: "Thank you for your $5.00 USD donation"}
-	if ConfirmMatchedRule(mailRules, donation, model.MessageFacts{MatchedRule: 1, Title: "Donation confirmation", Summary: "$5.00 USD donation"}) != 1 {
-		t.Fatal("donation should confirm finance rule")
-	}
 	// Watch-claimed ignores matched_rule so job filter keywords win.
 	claimed := ColorForFact(mailRules, model.IngestedMessage{
 		From: "Greenhouse <noreply@greenhouse.io>", Subject: "Software Engineer early career role",
-	}, model.MessageFacts{MatchedRule: 1, Claimed: true, Title: "early career software engineer"})
+	}, model.MessageFacts{MatchedRule: 1, Claimed: true, RuleConfidence: 99, Title: "early career software engineer"})
 	if claimed != NamedColors["blue"] {
 		t.Fatalf("claimed watch should use keyword/job color=%d", claimed)
 	}
 }
 
-func TestRuleHasEvidenceFinanceAndApplication(t *testing.T) {
-	finance := model.MailRule{Type: model.RuleInstruction, Instruction: "treat emails about finance update as important"}
-	app := model.MailRule{Type: model.RuleInstruction, Instruction: "keep/watch nuance that names job application updates"}
-	if RuleHasEvidence(finance, model.IngestedMessage{Subject: "Monthly service summary"}, model.MessageFacts{Title: "Hyundai service"}) {
-		t.Fatal("car service is not finance evidence")
+func TestRuleHasEvidenceConfidenceGate(t *testing.T) {
+	finance := model.MailRule{Type: model.RuleInstruction, Instruction: "keep emails about real personal financial transactions", Color: NamedColors["green"]}
+	rules := []model.MailRule{finance}
+
+	donation := model.IngestedMessage{
+		From: "Tremendous <rewards@reward.tremendous.com>", Subject: "Thank you for your $5.00 USD donation",
+		Body: "You donated $5.00 USD",
 	}
-	if RuleHasEvidence(finance, model.IngestedMessage{Subject: "Daily financial monitor"}, model.MessageFacts{Title: "Empower financial monitor", Summary: "spending update"}) {
-		t.Fatal("financial monitor alone is not finance evidence")
+	if ConfirmMatchedRule(rules, donation, model.MessageFacts{MatchedRule: 1, RuleConfidence: 85, Title: "Donation", Summary: "$5 donation"}) != 1 {
+		t.Fatal("high-confidence donation should confirm transactions rule")
 	}
-	if !RuleHasEvidence(finance, model.IngestedMessage{Subject: "Thanks for your donation"}, model.MessageFacts{Summary: "You donated $5.00"}) {
-		t.Fatal("donation should count as finance evidence")
+	if ColorForFact(rules, donation, model.MessageFacts{MatchedRule: 1, RuleConfidence: 85}) != NamedColors["green"] {
+		t.Fatal("donation should get finance color with high confidence")
 	}
-	if RuleHasEvidence(app, model.IngestedMessage{Subject: "Apply now to Junior role"}, model.MessageFacts{Title: "Junior role still available"}) {
-		t.Fatal("apply-now promo is not application evidence")
+	if ConfirmMatchedRule(rules, donation, model.MessageFacts{MatchedRule: 1, RuleConfidence: 50}) != 0 {
+		t.Fatal("below confidence floor must not confirm")
 	}
-	if !RuleHasEvidence(app, model.IngestedMessage{Subject: "Application sent"}, model.MessageFacts{Title: "Your application was sent to Quippy"}) {
-		t.Fatal("application sent should count")
+
+	spotify := model.IngestedMessage{
+		From: "Spotify <no-reply@alerts.spotify.com>", Subject: "353955 - Your Spotify login code",
+		Body: "Your login code is 353955.",
+	}
+	spotifyFacts := model.MessageFacts{
+		MatchedRule: 1, RuleConfidence: 95,
+		Title: "Spotify login code", Outcome: "keep via qwen: payment confirmation",
+	}
+	if ConfirmMatchedRule(rules, spotify, spotifyFacts) != 0 {
+		t.Fatal("OTP mail must not confirm non-auth keep rule even at high confidence")
+	}
+	if ColorForFact(rules, spotify, spotifyFacts) != 0 {
+		t.Fatal("spotify login must not get finance color")
+	}
+
+	authRule := model.MailRule{Type: model.RuleInstruction, Instruction: "keep login verification codes", Color: NamedColors["blue"]}
+	if ConfirmMatchedRule([]model.MailRule{authRule}, spotify, model.MessageFacts{MatchedRule: 1, RuleConfidence: 90, Title: "login code"}) != 1 {
+		t.Fatal("auth rule may confirm OTP mail")
 	}
 }
 
@@ -287,6 +305,10 @@ func TestSanitizeUserRuleParse(t *testing.T) {
 	if !strings.Contains(RuleHelpFull(), "Skip a kind of mail") || !strings.Contains(strings.ToLower(RuleHelpFull()), "skip / ignore") {
 		t.Fatalf("help missing category guidance: %q", RuleHelpFull())
 	}
+	help := strings.ToLower(RuleHelpFull())
+	if !strings.Contains(help, "be specific") || !strings.Contains(help, "confident") {
+		t.Fatalf("help missing keep-rule specificity/confidence guidance: %q", RuleHelpFull())
+	}
 	if strings.Contains(RuleHelp(), "mute factor75") {
 		t.Fatalf("short help should point at help: %q", RuleHelp())
 	}
@@ -339,9 +361,15 @@ func TestMuteMatchesSenderEmailOnly(t *testing.T) {
 
 func TestColorForMailUsesRule(t *testing.T) {
 	mailRules := []model.MailRule{{Type: model.RuleInstruction, Pattern: "Treat Extern updates as important", Instruction: "Treat Extern updates as important", Color: NamedColors["purple"]}}
-	got := ColorForMail(mailRules, model.IngestedMessage{From: "Extern <hi@extern.co>", Subject: "Wednesday event update"}, model.MessageFacts{})
+	// Instruction colors come from confirmed matched_rule + confidence, not keyword ColorForMail.
+	got := ColorForFact(mailRules, model.IngestedMessage{From: "Extern <hi@extern.co>", Subject: "Wednesday event update"}, model.MessageFacts{
+		MatchedRule: 1, RuleConfidence: 85, Title: "Extern event update",
+	})
 	if got != NamedColors["purple"] {
 		t.Fatalf("color=%d", got)
+	}
+	if ColorForMail(mailRules, model.IngestedMessage{From: "Extern <hi@extern.co>", Subject: "Wednesday event update"}, model.MessageFacts{}) != 0 {
+		t.Fatal("instruction rules must not color via ColorForMail keyword scan alone")
 	}
 	if ColorForMail(nil, model.IngestedMessage{Subject: "random"}, model.MessageFacts{}) != 0 {
 		t.Fatal("no rule should stay unset so embed falls back to grey")
@@ -537,3 +565,4 @@ func TestHygieneFooterSkipsMuted(t *testing.T) {
 		t.Fatalf("muted promo still nudged: %q", got)
 	}
 }
+

@@ -337,8 +337,10 @@ Describe the topic with ` + "`/rule`" + `. Wording like skip / ignore / don't in
 Don't use ` + "`/mute`" + ` for topics — mute is only for addresses.
 
 **Keep what matters**
-• ` + "`/rule treat finance updates as important`" + `
-• ` + "`/rule set job alerts for early-career US roles`" + `
+Be specific — name the sender, product, or exact kind of mail. Vague keeps ("important stuff") are easy for the model to over-apply. Digest color uses the model's best matching keep rule only when it is confident the email body fits that rule.
+• Good: ` + "`/rule keep Empower account and payment alerts`" + `
+• Good: ` + "`/rule set job alerts for early-career US roles`" + `
+• Weak: ` + "`/rule treat finance updates as important`" + `
 New keep rules start grey — say ` + "`make it purple`" + ` (or blue, green, …) to color them.
 
 **Ask about mail**
@@ -625,7 +627,7 @@ func RulePromptAppendix(rules []model.MailRule) string {
 	var b strings.Builder
 	b.WriteString("Watch/keep rules win when they fit the email. Skip rules only hide the skipped subclass, not the watched item.\n")
 	if len(keep) > 0 {
-		b.WriteString("Keep rules (set matched_rule to that number only when keep=true AND the body clearly fits that rule; else matched_rule=0):\n")
+		b.WriteString("Keep rules (set matched_rule to that number only when keep=true AND the body clearly fits that rule; set rule_confidence 0-100 for that pick, or 0 if matched_rule=0):\n")
 		b.WriteString(strings.Join(keep, "\n"))
 		if len(skip) > 0 {
 			b.WriteByte('\n')

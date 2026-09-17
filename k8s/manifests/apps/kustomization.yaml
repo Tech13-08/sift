@@ -19,7 +19,7 @@ images:
   newTag: "1789459392"
 - name: sift-summarizer
   newName: sift-summarizer
-  newTag: "1789628128"
+  newTag: "1789682802"
 - name: sift-web
   newName: sift-web
   newTag: "1789546173"

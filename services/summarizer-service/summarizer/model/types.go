@@ -37,8 +37,10 @@ type MessageFacts struct {
 	Mailbox     string
 	Color       int
 	MatchedRule int // 1-based index into ColorableKeepRules; 0 = none
-	ReplyToMe   bool
-	Claimed     bool
+	// RuleConfidence is 0-100 from the model for MatchedRule (how sure the body fits that keep rule).
+	RuleConfidence int
+	ReplyToMe      bool
+	Claimed        bool
 }
 
 const (

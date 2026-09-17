@@ -45,7 +45,8 @@ func BuildDigest(ctx context.Context, db *sql.DB, u model.DigestUser, messages [
 		greeting = drafted
 	}
 
-	order := MessageMailboxes(messages)
+	order := MailboxOrderByKept(MessageMailboxes(messages), kept)
+	digestLogf(ctx, "mailbox order=%v (by kept count)", order)
 	if len(order) > 1 {
 		views := make(map[string]model.DigestPayload, len(order))
 		var allEmbeds []model.Embed
@@ -93,6 +94,31 @@ func MessageMailboxes(messages []model.IngestedMessage) []string {
 		}
 		seen[mb] = true
 		out = append(out, mb)
+	}
+	return out
+}
+
+// MailboxOrderByKept sorts inbox buttons by how many kept (important) items each has,
+// most first. Ties keep the original first-seen order from `order`.
+func MailboxOrderByKept(order []string, kept []model.MessageFacts) []string {
+	if len(order) <= 1 {
+		return order
+	}
+	counts := make(map[string]int, len(order))
+	for _, f := range kept {
+		mb := strings.TrimSpace(f.Mailbox)
+		if mb != "" {
+			counts[mb]++
+		}
+	}
+	out := append([]string{}, order...)
+	// Stable: higher kept count first; equal counts keep relative order.
+	for i := 1; i < len(out); i++ {
+		j := i
+		for j > 0 && counts[out[j]] > counts[out[j-1]] {
+			out[j], out[j-1] = out[j-1], out[j]
+			j--
+		}
 	}
 	return out
 }
@@ -164,16 +190,16 @@ func OrganizeByMailbox(kept []model.MessageFacts) []model.MessageFacts {
 
 func DigestMailboxes(kept []model.MessageFacts) []string {
 	seen := map[string]bool{}
-	var out []string
+	var first []string
 	for _, f := range kept {
 		mb := strings.TrimSpace(f.Mailbox)
-		if seen[mb] {
+		if mb == "" || seen[mb] {
 			continue
 		}
 		seen[mb] = true
-		out = append(out, mb)
+		first = append(first, mb)
 	}
-	return out
+	return MailboxOrderByKept(first, kept)
 }
 
 func StampMailboxTitle(f model.MessageFacts, mailbox string) model.MessageFacts {

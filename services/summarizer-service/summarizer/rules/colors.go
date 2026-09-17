@@ -110,13 +110,7 @@ func ColorForMail(rules []model.MailRule, msg model.IngestedMessage, f model.Mes
 			}
 			return EmbedColor(r.Color)
 		}
-		// Keep instructions need the same evidence bar as matched_rule confirmation.
-		if !RuleHasEvidence(r, msg, f) {
-			continue
-		}
-		if fallback == 0 {
-			fallback = EmbedColor(r.Color)
-		}
+		// Instruction keep colors only via confirmed matched_rule + confidence (ColorForFact).
 	}
 	return fallback
 }

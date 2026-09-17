@@ -43,11 +43,12 @@ type ollamaChatResponse struct {
 }
 
 type oneEmailCategory struct {
-	Keep        bool   `json:"keep"`
-	Title       string `json:"title"`
-	Summary     string `json:"summary"`
-	Why         string `json:"why"`
-	MatchedRule int    `json:"matched_rule"`
+	Keep           bool   `json:"keep"`
+	Title          string `json:"title"`
+	Summary        string `json:"summary"`
+	Why            string `json:"why"`
+	MatchedRule    int    `json:"matched_rule"`
+	RuleConfidence int    `json:"rule_confidence"`
 }
 
 type greetingDraft struct {
@@ -61,9 +62,10 @@ var oneEmailJSONSchema = json.RawMessage(`{
     "title": {"type": "string"},
     "summary": {"type": "string"},
     "why": {"type": "string"},
-    "matched_rule": {"type": "integer"}
+    "matched_rule": {"type": "integer"},
+    "rule_confidence": {"type": "integer"}
   },
-  "required": ["keep", "why", "matched_rule"]
+  "required": ["keep", "why", "matched_rule", "rule_confidence"]
 }`)
 
 var greetingJSONSchema = json.RawMessage(`{
@@ -103,13 +105,13 @@ First ask: is this ABOUT the mailbox owner, or ABOUT someone else?
 About the owner: a person or company wrote them; the body talks to them or about their money, their time, their account, or an application they submitted.
 About someone else / a share: the body is a post, thread, or story by another person (community name, username/handle, upvotes, comments, "posted in", "shared", or a stranger writing I/me about their own interview or job). Then keep=false even if the subject sounds like it happened to the owner.
 
-keep=true if it is about the owner AND they would want it in a short daily note: a meeting or time to confirm, a person waiting on a reply, their money or account, or a real outcome of something they applied for (interview with them, offer, rejection). Personal mail like that can stay even if it is not urgent. A reply in a conversation the owner already wrote in is always keep=true.
+keep=true if it is about the owner AND they would want it in a short daily note: a meeting or time to confirm, a person waiting on a reply, their money moving (payment, charge, donation, statement with balances), or a real outcome of something they applied for (interview with them, offer, rejection). Personal mail like that can stay even if it is not urgent. A reply in a conversation the owner already wrote in is always keep=true.
 
 When it is a toss-up between a share and a personal letter, keep=false.
 
-User rules can conflict. A watch/keep rule that fits this email wins over a skip rule about a broader class. Only keep=false for the skip when the body is clearly that subclass (a blast or product pitch), not the thing they asked to watch.
+User rules can conflict. A watch/keep rule that fits this email wins over a skip rule about a broader class. Only keep=false for the skip when the body is clearly that subclass (a blast or product pitch), not the thing they asked to watch. Prefer the user's keep/skip rules over any default habit below.
 
-keep=false for newsletters, sales, job/hackathon recommendations they did not apply to, and daily monitors with no action required.
+keep=false for newsletters, sales, and job/hackathon recommendations they did not apply to. Welcome / signup / "verify your email" / product onboarding mail is keep=false unless a user keep rule clearly asks for it.
 
 If keep=false, leave title and summary empty.
 
@@ -120,7 +122,11 @@ summary: 1-3 sentences from the BODY only. Do not invent.
 
 Always set why: one short clause naming the real reason (e.g. "payment confirmation", "product ad not a specific opening", "newsletter blast", "matches watched early-career role").
 
-When User rules list numbered keep rules, set matched_rule to that number only if keep=true AND the BODY clearly fits that rule (real payment/donation/finance activity for a finance rule; early-career job match for the job filter; a real application outcome for an application rule). If unsure, matched_rule=0. Never invent a rule number.`
+When User rules list numbered keep rules:
+- matched_rule = that number only if keep=true AND the BODY clearly fits that keep rule. Else 0. Never invent a number.
+- rule_confidence = 0-100 for how sure you are that THIS email body is what THAT keep rule describes (not a related-sounding subject). Use 0 when matched_rule=0.
+- Examples: a $5 donation or bank charge clearly fits "financial transactions" (high confidence). A login/OTP code does not fit a finance/transactions rule (matched_rule=0, confidence=0) even if you keep the email. Welcome/verify/onboarding mail must not match finance or job rules (matched_rule=0).
+- If unsure which keep rule fits, matched_rule=0 and rule_confidence=0.`
 
 const greetingPrompt = `JSON only: {"greeting":"..."}. One short greeting to the reader (Good morning / Good afternoon / Good evening / Happy Friday). Not Hey/Hi/Hello. Not I/me/my. Not a caption.`
 
@@ -157,10 +163,18 @@ func CategorizeOneEmail(ctx context.Context, msg model.IngestedMessage, sys stri
 	if matched < 0 {
 		matched = 0
 	}
+	conf := cat.RuleConfidence
+	if conf < 0 {
+		conf = 0
+	}
+	if conf > 100 {
+		conf = 100
+	}
 	f := model.MessageFacts{
-		Title:       strings.TrimSpace(cat.Title),
-		Summary:     strings.TrimSpace(cat.Summary),
-		MatchedRule: matched,
+		Title:          strings.TrimSpace(cat.Title),
+		Summary:        strings.TrimSpace(cat.Summary),
+		MatchedRule:    matched,
+		RuleConfidence: conf,
 	}
 	if cat.Keep {
 		f.Kind = model.KindNotice
@@ -175,6 +189,7 @@ func CategorizeOneEmail(ctx context.Context, msg model.IngestedMessage, sys stri
 		f.Title = ""
 		f.Summary = ""
 		f.MatchedRule = 0
+		f.RuleConfidence = 0
 		f.Outcome = mail.DecisionOutcome("skip", "qwen", why)
 	}
 	return f, nil
@@ -287,11 +302,10 @@ func MustKeepFact(f model.MessageFacts) bool {
 		return false
 	}
 	blob := strings.ToLower(f.Title + " " + f.Summary + " " + f.What + " " + f.Outcome)
-	// Do not protect on soft labels like "finance update" / "financial" alone — need real signals.
+	// Do not protect on soft labels like "finance update" / welcome / login alone.
 	return mail.LooksClosedApplication(blob) || mail.LooksTimeAsk(blob) || mail.LooksMoneyEvent(blob) ||
 		model.ContainsAny(blob, "declined", "rejected", "rejection", "not moving you", "offer letter",
 			"application was sent", "application sent", "applied to",
-			"sign-in", "sign in", "login", "authentication", "account confirmation",
 			"donation", "donated", "payment confirmation", "payment received")
 }
 

@@ -51,6 +51,9 @@ func ExtractAllFacts(ctx context.Context, messages []model.IngestedMessage, rule
 			action = "keep"
 		}
 		digestlog.LogDecide(ctx, action, "qwen", msg.From, msg.Subject, f.Outcome, msg.Body)
+		if f.MatchedRule > 0 || f.RuleConfidence > 0 {
+			digestlog.Logf(ctx, "rule-match matched_rule=%d confidence=%d title=%q", f.MatchedRule, f.RuleConfidence, f.Title)
+		}
 		if msg.ReplyToMe {
 			f = mail.KeepReplyToMe(msg, f)
 			f.Outcome = mail.DecisionOutcome("keep", "reply", "thread you already wrote in")
@@ -66,10 +69,16 @@ func ExtractAllFacts(ctx context.Context, messages []model.IngestedMessage, rule
 				digestlog.LogDecide(ctx, "keep", "watch", msg.From, msg.Subject, "matches a watch/keep rule", msg.Body)
 			}
 		}
-		// Drop soft matched_rule stamps that the mail does not corroborate.
+		// Drop soft matched_rule stamps that fail confidence / OTP guard.
 		if f.MatchedRule > 0 {
+			before := f.MatchedRule
+			beforeConf := f.RuleConfidence
 			if confirmed := ConfirmMatchedRule(rules, msg, f); confirmed != f.MatchedRule {
+				digestlog.Logf(ctx, "rule-match dropped matched_rule=%d confidence=%d → %d", before, beforeConf, confirmed)
 				f.MatchedRule = confirmed
+				if confirmed == 0 {
+					f.RuleConfidence = 0
+				}
 			}
 		}
 		out[i] = f
