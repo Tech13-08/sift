@@ -96,6 +96,11 @@ spec:
                 configMapKeyRef:
                   name: sift-config
                   key: DISCORD_SERVER_INVITE
+            - name: DISCORD_BOT_INVITE
+              valueFrom:
+                configMapKeyRef:
+                  name: sift-config
+                  key: DISCORD_BOT_INVITE
             - name: DISCORD_CLIENT_ID
               valueFrom:
                 secretKeyRef:

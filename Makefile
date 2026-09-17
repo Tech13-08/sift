@@ -11,7 +11,8 @@ TAG := $(shell date +%s)
 	deploy-all start-world reset-world nuke clean-apps deploy-apps \
 	sync-branding sync-auth sync-web sync-ingestion sync-summarizer sync-discord sync-all watch-pods \
 	sync-secrets-from-env migrate-db-from-compose stop-compose-prod promote-k3d-prod \
-	pubsub-point-at-public ensure-up install-autostart install-ollama-autostart install-monitoring
+	pubsub-point-at-public ensure-up install-autostart install-ollama-autostart install-monitoring \
+	backup-db
 
 # Create local k3d cluster if missing. Maps host :8088 → Traefik :80.
 create-cluster:
@@ -87,6 +88,11 @@ promote-k3d-prod: sync-secrets-from-env
 pubsub-point-at-public:
 	chmod +x ./scripts/pubsub-point-at-public.sh
 	./scripts/pubsub-point-at-public.sh
+
+# Gzipped pg_dump into ./backups (keeps last 5). Low disk; use --force to ignore age skip.
+backup-db:
+	chmod +x ./scripts/backup-db.sh
+	./scripts/backup-db.sh --force
 
 # Wait for Docker, start k3d cluster, wait for Sift pods (also run by Windows boot task).
 ensure-up:

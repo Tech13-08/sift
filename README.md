@@ -111,8 +111,6 @@ Schema: `infra/postgres/init.sql` (ConfigMap on first PVC). Auth also migrates c
 3. **Optionally link Discord** for DMs (share a server with the bot, or invite it).
 4. Digests always appear in the web UI; Discord DMs only if linked.
 
-Legacy users (pre-password) can **claim** their existing username once via Create account if `password_hash` is still empty.
-
 ## External setup
 
 ### Discord (optional delivery)

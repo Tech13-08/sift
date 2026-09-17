@@ -6,6 +6,9 @@
 **/secrets.local.yaml
 k8s/manifests/config/secrets.local.yaml
 
+# Local DB dumps (make backup-db)
+backups/
+
 # Dependencies
 node_modules/
 **/node_modules/

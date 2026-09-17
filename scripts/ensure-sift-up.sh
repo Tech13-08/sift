@@ -61,4 +61,11 @@ done
 
 echo "pods:"
 kubectl get pods -o wide || true
+
+# Weekly-ish DB dump when ensure-up runs (skips if a backup < 7d old). Tiny gzip; not a CronJob.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ -x "$ROOT/scripts/backup-db.sh" ]] || chmod +x "$ROOT/scripts/backup-db.sh" 2>/dev/null; then
+  "$ROOT/scripts/backup-db.sh" || echo "WARN: backup-db failed (non-fatal)"
+fi
+
 echo "===== $(date -Is) ensure-sift-up OK ====="

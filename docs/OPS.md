@@ -143,20 +143,23 @@ Admin password (not for the public link): set `GRAFANA_ADMIN_PASSWORD` in `.env`
 ## Data & retention
 
 - **Prod DB:** k3d PVC `postgres-pvc`
+- **Rolling dumps:** `make backup-db` → `./backups/sift-*.sql.gz` (gzip level 1; keeps last 5 ≈ a few MB). `ensure-sift-up` also dumps if the newest file is older than 7 days — no always-on CronJob.
 - **Compose backup volume:** `sift_postgres_data` (cold; do not run two Postgres writers)
 - Redis: no PVC - sessions reset if Redis pod recreated
 - Bodies null after 30d; rows delete after 90d
 - Digest window capped at `DIGEST_MAX_MESSAGES` (default 400)
 
 ```bash
-kubectl exec -i deploy/postgres -- pg_dump -U postgres sift > sift-$(date +%F).sql
+make backup-db
+# or:
+kubectl exec -i deploy/postgres -- pg_dump -U postgres sift | gzip > backups/sift-$(date +%F).sql.gz
 ```
 
 Re-copy Compose → k3d: `make migrate-db-from-compose`.
 
 ## Auth notes
 
-- Register on `/`; legacy usernames claim password once via Create account
+- Register on `/`
 - Unlink Gmail: **Inboxes**. 
 - Discord link/unlink: **Home**. 
 - Change password / delete account: **Account** (username in header)

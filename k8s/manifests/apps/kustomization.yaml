@@ -10,7 +10,7 @@ kind: Kustomization
 images:
 - name: sift-auth
   newName: sift-auth
-  newTag: "1789546173"
+  newTag: "1789629980"
 - name: sift-discord
   newName: sift-discord
   newTag: "1789626826"

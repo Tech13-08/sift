@@ -86,27 +86,6 @@ function mountApi(app, { pool, listGoogleMailboxStatuses, isValidTimezone }) {
         }
 
         try {
-            const existing = await pool.query(
-                `SELECT * FROM users WHERE lower(username) = lower($1)`,
-                [username]
-            );
-            if (existing.rows[0]) {
-                if (existing.rows[0].password_hash) {
-                    return res.status(409).json({ error: 'username_taken', message: 'That username is taken.' });
-                }
-                const passwordHash = await hashPassword(password);
-                const updated = await pool.query(
-                    `UPDATE users SET password_hash = $1 WHERE id = $2 RETURNING *`,
-                    [passwordHash, existing.rows[0].id]
-                );
-                const user = updated.rows[0];
-                await new Promise((resolve, reject) => {
-                    req.login(user, (err) => (err ? reject(err) : resolve()));
-                });
-                recordUserAction('signup');
-                return res.status(200).json({ ok: true, id: user.id, username: user.username, claimed: true });
-            }
-
             const passwordHash = await hashPassword(password);
             const created = await pool.query(
                 `INSERT INTO users (username, password_hash)
